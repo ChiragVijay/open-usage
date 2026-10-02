@@ -1,7 +1,6 @@
-use crate::pricing::Price;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fs, path::PathBuf};
+use std::{fs, path::PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -10,11 +9,9 @@ pub struct Config {
     pub enabled: [bool; 3],
     pub dark: bool,
     pub privacy: bool,
-    pub monthly_budget: f64,
     pub refresh_seconds: u64,
     pub custom_homes: [Vec<PathBuf>; 3],
     pub cursor_imports: Vec<PathBuf>,
-    pub prices: BTreeMap<String, Price>,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -23,11 +20,9 @@ impl Default for Config {
             enabled: [true; 3],
             dark: false,
             privacy: false,
-            monthly_budget: 100.0,
             refresh_seconds: 300,
             custom_homes: Default::default(),
             cursor_imports: vec![],
-            prices: BTreeMap::new(),
         }
     }
 }
@@ -48,11 +43,7 @@ impl Config {
         }
         let mut config: Self =
             serde_json::from_slice(&fs::read(&path)?).context("Settings could not be read")?;
-        if !config.monthly_budget.is_finite() || config.monthly_budget <= 0.0 {
-            config.monthly_budget = 100.0;
-        }
         config.refresh_seconds = config.refresh_seconds.clamp(60, 3600);
-        config.prices.retain(|_, price| price.valid());
         Ok(config)
     }
     pub fn save(&self) -> Result<()> {

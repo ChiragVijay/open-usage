@@ -1,16 +1,15 @@
 use super::*;
-use chrono::{Duration as ChronoDuration, Local};
+use chrono::Local;
 use open_usage::{
     analytics::{Analysis, Totals},
-    model::{ProviderStatus, UsageRecord},
-    pricing::price_for,
+    model::{LimitWindow, ProviderStatus, UsageRecord},
 };
 
 impl Dashboard {
     pub(super) fn sidebar(&self, cx: &Context<Self>) -> Div {
         let theme = self.theme();
         div()
-            .w(px(194.))
+            .w(px(188.))
             .flex_shrink_0()
             .h_full()
             .bg(rgb(theme.sidebar))
@@ -18,292 +17,170 @@ impl Dashboard {
             .border_color(rgb(theme.line))
             .flex()
             .flex_col()
-            .p(px(18.))
             .child(
                 div()
+                    .h(px(64.))
+                    .px(px(18.))
                     .flex()
                     .items_center()
                     .gap(px(10.))
-                    .h(px(53.))
-                    .mb(px(26.))
                     .child(
                         div()
-                            .size(px(33.))
-                            .rounded(px(10.))
+                            .size(px(28.))
+                            .rounded(px(7.))
                             .bg(rgb(theme.accent))
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(svg().path("brand").size(px(23.)).text_color(rgb(0xffffff))),
+                            .child(
+                                icon("brand", theme)
+                                    .size(px(19.))
+                                    .text_color(rgb(theme.panel)),
+                            ),
                     )
-                    .child(
-                        div()
-                            .font_family(display_font())
-                            .text_size(px(16.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("open usage"),
+                    .child(title("Open Usage", theme).text_size(px(15.))),
+            )
+            .child(
+                div()
+                    .px(px(12.))
+                    .pt(px(20.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(5.))
+                    .children(
+                        [Page::Overview, Page::Activity, Page::Models, Page::Limits]
+                            .into_iter()
+                            .map(|page| self.navigation(page, cx)),
                     ),
             )
-            .child(
-                label("WORKSPACE", theme)
-                    .text_size(px(10.))
-                    .mb(px(12.))
-                    .px(px(10.)),
-            )
-            .children(
-                [Page::Overview, Page::Activity, Page::Limits]
-                    .into_iter()
-                    .map(|page| {
-                        let selected = self.page == page;
-                        div()
-                            .id(SharedString::from(format!("nav-{}", page.title())))
-                            .focusable()
-                            .tab_index(0)
-                            .flex()
-                            .gap(px(12.))
-                            .items_center()
-                            .h(px(43.))
-                            .px(px(12.))
-                            .mb(px(5.))
-                            .rounded(px(9.))
-                            .cursor_pointer()
-                            .bg(rgb(if selected { theme.wash } else { theme.sidebar }))
-                            .text_color(rgb(if selected { theme.accent } else { theme.muted }))
-                            .font_weight(if selected {
-                                FontWeight::SEMIBOLD
-                            } else {
-                                FontWeight::NORMAL
-                            })
-                            .hover(move |s| s.bg(rgb(theme.wash)))
-                            .focus(move |s| s.bg(rgb(theme.wash)))
-                            .child(
-                                svg().path(page.icon()).size(px(18.)).text_color(rgb(
-                                    if selected { theme.accent } else { theme.muted },
-                                )),
-                            )
-                            .child(page.title())
-                            .on_click(cx.listener(move |view, _, window, cx| {
-                                view.perform(UiAction::Page(page), window, cx)
-                            }))
-                            .on_key_down(cx.listener(
-                                move |view, event: &KeyDownEvent, window, cx| {
-                                    if event.keystroke.key == "enter" {
-                                        view.perform(UiAction::Page(page), window, cx);
-                                        cx.stop_propagation();
-                                    }
-                                },
-                            ))
-                    }),
-            )
-            .child(div().h(px(1.)).bg(rgb(theme.line)).my(px(22.)))
-            .child(
-                label("YOUR PROVIDERS", theme)
-                    .text_size(px(10.))
-                    .mb(px(13.))
-                    .px(px(10.)),
-            )
-            .children(Provider::ALL.into_iter().map(|provider| {
-                div()
-                    .id(SharedString::from(format!("side-{}", provider.key())))
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .h(px(34.))
-                    .px(px(12.))
-                    .cursor_pointer()
-                    .child(dot(provider))
-                    .child(div().text_color(rgb(theme.muted)).child(provider.name()))
-                    .child(div().flex_1())
-                    .child(div().size(px(5.)).rounded_full().bg(rgb(
-                        if self.config.enabled[provider.index()] {
-                            color(provider)
-                        } else {
-                            theme.line
-                        },
-                    )))
-                    .on_click(cx.listener(move |view, _, window, cx| {
-                        view.provider = Some(provider);
-                        view.perform(UiAction::Page(Page::Overview), window, cx);
-                    }))
-            }))
             .child(div().flex_1())
             .child(
                 div()
-                    .rounded(px(12.))
-                    .bg(rgb(theme.wash))
-                    .p(px(13.))
-                    .mb(px(20.))
+                    .px(px(12.))
+                    .pb(px(14.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(5.))
+                    .child(self.navigation(Page::Connections, cx))
+                    .child(self.navigation(Page::Settings, cx)),
+            )
+            .child(
+                div()
+                    .border_t_1()
+                    .border_color(rgb(theme.line))
+                    .px(px(18.))
+                    .py(px(16.))
                     .child(
                         div()
                             .flex()
                             .items_center()
                             .gap(px(7.))
-                            .mb(px(6.))
-                            .child(div().size(px(6.)).rounded_full().bg(rgb(0x33958a)))
+                            .child(div().size(px(6.)).rounded_full().bg(rgb(
+                                if self.config.online {
+                                    0x328c80
+                                } else {
+                                    theme.muted
+                                },
+                            )))
                             .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(if self.demo {
-                                        "Example workspace"
+                                label(
+                                    if self.config.online {
+                                        "Account sync on"
                                     } else {
-                                        "Stored on this device"
-                                    }),
+                                        "Local history"
+                                    },
+                                    theme,
+                                )
+                                .text_size(px(12.)),
                             ),
                     )
                     .child(
                         label(
                             if self.demo {
-                                "Explore with sample data"
+                                "Example workspace"
                             } else {
-                                "Your history stays local"
+                                concat!("v", env!("CARGO_PKG_VERSION"))
                             },
                             theme,
                         )
-                        .text_size(px(10.)),
+                        .mt(px(6.))
+                        .text_size(px(11.)),
                     ),
             )
-            .children([Page::Connections, Page::Settings].into_iter().map(|page| {
-                self.button(
-                    format!("nav-bottom-{}", page.title()),
-                    page.title(),
-                    Some(page.icon()),
-                    self.page == page,
-                    UiAction::Page(page),
-                    cx,
-                )
-                .justify_start()
-                .mb(px(7.))
-                .border_color(rgb(theme.sidebar))
-                .bg(rgb(theme.sidebar))
-            }))
+    }
+    fn navigation(&self, page: Page, cx: &Context<Self>) -> Stateful<Div> {
+        let theme = self.theme();
+        let active = self.page == page;
+        div()
+            .id(SharedString::from(format!("nav-{}", page.title())))
+            .focusable()
+            .tab_index(0)
+            .h(px(38.))
+            .rounded(px(6.))
+            .px(px(12.))
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .cursor_pointer()
+            .bg(rgb(if active { theme.wash } else { theme.sidebar }))
+            .text_color(rgb(if active { theme.accent } else { theme.muted }))
+            .font_weight(if active {
+                FontWeight::SEMIBOLD
+            } else {
+                FontWeight::NORMAL
+            })
+            .text_size(px(13.))
+            .hover(move |style| style.bg(rgb(theme.wash)))
+            .focus(move |style| style.border_1().border_color(rgb(theme.accent)))
             .child(
-                label("v0.1.0  /  Native Rust", theme)
-                    .text_size(px(10.))
-                    .mt(px(16.))
-                    .px(px(10.)),
+                icon(page.icon(), theme)
+                    .size(px(17.))
+                    .text_color(rgb(if active { theme.accent } else { theme.muted })),
             )
+            .child(page.title())
+            .on_click(cx.listener(move |view, _, window, cx| {
+                view.perform(UiAction::Page(page), window, cx)
+            }))
+            .on_key_down(cx.listener(move |view, event: &KeyDownEvent, window, cx| {
+                if event.keystroke.key == "enter" || event.keystroke.key == "space" {
+                    view.perform(UiAction::Page(page), window, cx);
+                    cx.stop_propagation();
+                }
+            }))
     }
     pub(super) fn header(&self, cx: &Context<Self>) -> Div {
         let theme = self.theme();
+        let updated = self
+            .data()
+            .refreshed_at
+            .map(|time| format!("Updated {}", time.with_timezone(&Local).format("%H:%M")))
+            .unwrap_or_else(|| "Not synced".into());
         div()
-            .h(px(72.))
+            .h(px(64.))
             .flex_shrink_0()
+            .px(px(24.))
+            .bg(rgb(theme.panel))
             .border_b_1()
             .border_color(rgb(theme.line))
-            .px(px(30.))
             .flex()
             .items_center()
-            .justify_between()
-            .child(
-                div()
-                    .flex()
-                    .gap(px(10.))
-                    .items_center()
-                    .child(label("Workspace", theme))
-                    .child(label("/", theme))
-                    .child(
-                        div()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(self.page.title()),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(9.))
-                    .child(
-                        label(
-                            if self.refreshing {
-                                "Refreshing sources…"
-                            } else if self.demo {
-                                "Example data"
-                            } else {
-                                "Local workspace"
-                            },
-                            theme,
-                        )
-                        .mr(px(5.)),
-                    )
-                    .child(self.button(
-                        "header-privacy",
-                        if self.config.privacy {
-                            "Hidden"
-                        } else {
-                            "Privacy"
-                        },
-                        Some("privacy"),
-                        self.config.privacy,
-                        UiAction::Privacy,
-                        cx,
-                    ))
-                    .child(self.button(
-                        "header-compact",
-                        "Quick glance",
-                        Some("overview"),
-                        false,
-                        UiAction::Compact,
-                        cx,
-                    )),
-            )
-    }
-    fn periods(&self, cx: &Context<Self>) -> Div {
-        let theme = self.theme();
-        div()
-            .flex()
-            .gap(px(3.))
-            .p(px(3.))
-            .rounded(px(10.))
-            .bg(rgb(theme.line))
-            .children(Period::ALL.into_iter().map(|period| {
-                self.button(
-                    format!("range-{}", period.days()),
-                    period.label(),
-                    None,
-                    self.period == period,
-                    UiAction::Period(period),
-                    cx,
-                )
-                .border_color(rgb(if self.period == period {
-                    theme.panel
-                } else {
-                    theme.line
-                }))
-                .bg(rgb(if self.period == period {
-                    theme.panel
-                } else {
-                    theme.line
-                }))
-            }))
-    }
-    fn filters(&self, cx: &Context<Self>) -> Div {
-        div()
-            .flex()
-            .gap(px(7.))
-            .items_center()
-            .child(self.button(
-                "all-providers",
-                "All providers",
-                None,
-                self.provider.is_none(),
-                UiAction::Provider(None),
-                cx,
-            ))
-            .children(Provider::ALL.into_iter().map(|provider| {
-                self.button(
-                    format!("filter-{}", provider.key()),
-                    provider.name(),
-                    None,
-                    self.provider == Some(provider),
-                    UiAction::Provider(Some(provider)),
-                    cx,
-                )
-                .child(dot(provider))
-            }))
+            .gap(px(10.))
+            .child(title(self.page.title(), theme).text_size(px(18.)))
             .child(div().flex_1())
+            .child(
+                label(
+                    if self.refreshing {
+                        "Syncing…".into()
+                    } else {
+                        updated
+                    },
+                    theme,
+                )
+                .text_size(px(12.))
+                .mr(px(4.)),
+            )
             .child(self.button(
-                "refresh",
+                "header-refresh",
                 "Refresh",
                 Some("refresh"),
                 false,
@@ -311,89 +188,526 @@ impl Dashboard {
                 cx,
             ))
             .child(self.button(
-                "export",
-                "Export CSV",
-                Some("export"),
+                "header-compact",
+                "Quick view",
+                Some("overview"),
                 false,
-                UiAction::Export,
+                UiAction::Compact,
                 cx,
             ))
     }
-    fn intro(
-        &self,
-        title_text: &str,
-        subtitle: &str,
-        cx: &Context<Self>,
-        show_period: bool,
-    ) -> Div {
+    fn page_body(&self, cx: &Context<Self>) -> Div {
+        let theme = self.theme();
+        div()
+            .w_full()
+            .max_w(px(1400.))
+            .mx_auto()
+            .flex()
+            .flex_col()
+            .gap(px(18.))
+            .when(self.demo, |body| {
+                body.child(
+                    div()
+                        .rounded(px(6.))
+                        .border_1()
+                        .border_color(rgb(theme.line))
+                        .bg(rgb(theme.panel))
+                        .px(px(14.))
+                        .py(px(9.))
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(label("Example data", theme))
+                        .child(self.button(
+                            "exit-example",
+                            "Use my accounts",
+                            None,
+                            false,
+                            UiAction::Demo,
+                            cx,
+                        )),
+                )
+            })
+    }
+    fn periods(&self, cx: &Context<Self>) -> Div {
         let theme = self.theme();
         div()
             .flex()
-            .justify_between()
             .items_center()
-            .mb(px(23.))
-            .gap(px(10.))
+            .gap(px(4.))
+            .rounded(px(7.))
+            .bg(rgb(theme.panel))
+            .border_1()
+            .border_color(rgb(theme.line))
+            .p(px(3.))
+            .children(Period::ALL.into_iter().map(|period| {
+                self.button(
+                    format!("period-{}", period.days()),
+                    period.label(),
+                    None,
+                    self.period == period,
+                    UiAction::Period(period),
+                    cx,
+                )
+            }))
+    }
+    fn filters(&self, cx: &Context<Self>) -> Div {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(self.button(
+                "account-all",
+                "All accounts",
+                None,
+                self.provider.is_none(),
+                UiAction::Provider(None),
+                cx,
+            ))
+            .children(self.visible_accounts().iter().map(|status| {
+                self.button(
+                    format!("account-{}", status.provider.key()),
+                    status.provider.name(),
+                    None,
+                    self.provider == Some(status.provider),
+                    UiAction::Provider(Some(status.provider)),
+                    cx,
+                )
+            }))
+    }
+    fn toolbar(&self, cx: &Context<Self>, filter: bool) -> Div {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .when(filter, |row| row.child(self.filters(cx)))
+            .child(div().flex_1())
+            .child(self.periods(cx))
+    }
+    fn metric(&self, name: &str, value: String, note: &str) -> Div {
+        let theme = self.theme();
+        div()
+            .flex_1()
+            .min_w_0()
+            .child(label(name.to_owned(), theme).text_size(px(12.)))
             .child(
                 div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(7.))
-                    .child(
-                        div()
-                            .font_family(display_font())
-                            .text_size(px(27.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(title_text.to_owned()),
-                    )
-                    .child(label(subtitle.to_owned(), theme)),
+                    .mt(px(7.))
+                    .font_family(display_font())
+                    .text_size(px(25.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(value),
             )
-            .when(show_period, |div| div.child(self.periods(cx)))
+            .child(label(note.to_owned(), theme).text_size(px(12.)).mt(px(5.)))
     }
-    fn demo_banner(&self, cx: &Context<Self>) -> Div {
+    fn badge(&self, text: &str, active: bool) -> Div {
         let theme = self.theme();
-        div().when(self.demo, |root| {
-            root.flex()
+        div()
+            .rounded(px(4.))
+            .px(px(7.))
+            .py(px(3.))
+            .text_size(px(11.))
+            .text_color(rgb(if active { 0x328c80 } else { theme.muted }))
+            .bg(rgb(if active {
+                if self.config.dark { 0x16372f } else { 0xebf4f2 }
+            } else {
+                theme.bg
+            }))
+            .child(text.to_owned())
+    }
+    pub(super) fn overview(&self, cx: &Context<Self>) -> Div {
+        let theme = self.theme();
+        let analysis = analytics::analyze(self.data(), &self.config, self.period, None, Utc::now());
+        let accounts = self.visible_accounts();
+        let body = self.page_body(cx).child(
+            div()
+                .flex()
                 .items_center()
-                .gap(px(10.))
-                .rounded(px(10.))
-                .bg(rgb(theme.wash))
-                .px(px(14.))
-                .py(px(9.))
-                .mb(px(18.))
-                .child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(rgb(theme.accent))
-                        .child("EXAMPLE DATA"),
-                )
+                .justify_between()
                 .child(label(
-                    "These numbers illustrate the app. Your live history is separate.",
+                    format!(
+                        "{} account{}",
+                        accounts.len(),
+                        if accounts.len() == 1 { "" } else { "s" }
+                    ),
                     theme,
                 ))
-                .child(div().flex_1())
-                .child(self.button("leave-demo", "Use my data", None, false, UiAction::Demo, cx))
-        })
+                .child(self.periods(cx)),
+        );
+        if accounts.is_empty() {
+            return body.child(panel(theme).py(px(40.)).child(title("No connected accounts",theme))
+                .child(label("Connect a signed-in account or add local history to start tracking usage.",theme).mt(px(8.)))
+                .child(self.button("empty-connect","Connections",Some("connections"),false,UiAction::Page(Page::Connections),cx).mt(px(20.))));
+        }
+        body.child(div().flex().gap(px(16.)).children(accounts.iter().map(|status|self.account_card(status,&analysis.providers[status.provider.index()],cx))))
+            .child(self.chart(&analysis,cx))
+            .child(div().flex().items_center().justify_between().child(label("USD · Costs are reported by the account provider. Subscription fees are excluded.",theme).text_size(px(12.)))
+                .child(self.button("account-export","Export CSV",Some("export"),false,UiAction::Export,cx)))
+            .when(!self.config.online,|body|body.child(div().flex().items_center().gap(px(10.)).child(label("Account sync is off. Enable it to read allowances and Cursor usage.",theme)).child(self.button("account-sync-settings","Connections",None,false,UiAction::Page(Page::Connections),cx))))
     }
-    fn stat(&self, label_text: &str, value: String, note: String, accent: Option<u32>) -> Div {
+    fn account_card(&self, status: &ProviderStatus, totals: &Totals, cx: &Context<Self>) -> Div {
         let theme = self.theme();
+        let provider = status.provider;
+        let reading = if self.demo {
+            "Example"
+        } else if !status.stale {
+            "Live"
+        } else if status.checked_at.is_some() {
+            "Cached"
+        } else {
+            "Local"
+        };
         panel(theme)
             .flex_1()
             .min_w_0()
-            .p(px(19.))
-            .child(label(label_text.to_owned(), theme))
+            .flex()
+            .flex_col()
+            .gap(px(18.))
             .child(
                 div()
-                    .mt(px(10.))
-                    .mb(px(5.))
-                    .font_family(display_font())
-                    .text_size(px(31.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(accent.unwrap_or(theme.ink)))
-                    .child(value),
+                    .flex()
+                    .items_center()
+                    .gap(px(11.))
+                    .child(provider_mark(provider, self.config.dark))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(title(provider.account_name(), theme))
+                            .child(
+                                label(
+                                    status
+                                        .plan
+                                        .as_deref()
+                                        .map(plan_name)
+                                        .unwrap_or_else(|| "Plan not reported".into()),
+                                    theme,
+                                )
+                                .text_size(px(12.))
+                                .mt(px(3.)),
+                            ),
+                    )
+                    .child(self.badge(reading, !self.demo && !status.stale)),
             )
-            .child(label(note, theme).text_size(px(11.)))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(18.))
+                    .child(self.metric(
+                        "Tokens",
+                        self.number(totals.tokens.total()),
+                        self.period.label(),
+                    ))
+                    .child(self.metric(
+                        "Reported usage cost",
+                        self.spend(totals),
+                        if totals.reported_rows > 0 {
+                            "Provider reported"
+                        } else {
+                            "Not reported"
+                        },
+                    )),
+            )
+            .child(
+                div()
+                    .border_t_1()
+                    .border_color(rgb(theme.line))
+                    .pt(px(15.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(15.))
+                    .when(status.limits.is_empty(), |row| {
+                        row.child(label(
+                            if self.config.online {
+                                "No account allowances reported"
+                            } else {
+                                "Enable account sync for allowances"
+                            },
+                            theme,
+                        ))
+                    })
+                    .children(
+                        status
+                            .limits
+                            .iter()
+                            .take(2)
+                            .map(|limit| self.quota(limit, status.stale, provider)),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .mt_auto()
+                    .child(self.button(
+                        format!("history-{}", provider.key()),
+                        "Activity",
+                        None,
+                        false,
+                        UiAction::AccountActivity(provider),
+                        cx,
+                    ))
+                    .child(self.button(
+                        format!("dashboard-{}", provider.key()),
+                        "Account",
+                        Some("arrow"),
+                        false,
+                        UiAction::OpenProvider(provider),
+                        cx,
+                    ))
+                    .child(div().flex_1())
+                    .child(
+                        label(
+                            status
+                                .checked_at
+                                .map(|at| at.with_timezone(&Local).format("%H:%M").to_string())
+                                .unwrap_or_else(|| "Local history".into()),
+                            theme,
+                        )
+                        .text_size(px(11.)),
+                    ),
+            )
     }
-    pub(super) fn overview(&self, cx: &Context<Self>) -> Div {
+    fn quota(&self, limit: &LimitWindow, stale: bool, provider: Provider) -> Div {
+        let theme = self.theme();
+        let expired = limit.expired(Utc::now());
+        let remaining = if self.config.privacy {
+            "Hidden".into()
+        } else if expired {
+            "Refresh needed".into()
+        } else {
+            format!("{:.0}% left", limit.remaining())
+        };
+        let bar_color = if expired || stale {
+            theme.muted
+        } else if limit.remaining() <= 10.0 {
+            0xc34c4c
+        } else if limit.remaining() <= 25.0 {
+            0xb57c27
+        } else {
+            color(provider)
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(7.))
+            .child(
+                div()
+                    .flex()
+                    .justify_between()
+                    .items_center()
+                    .child(label(limit.label.clone(), theme).text_size(px(12.)))
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(remaining),
+                    ),
+            )
+            .child(
+                div()
+                    .h(px(5.))
+                    .w_full()
+                    .rounded_full()
+                    .bg(rgb(theme.line))
+                    .overflow_hidden()
+                    .when(!self.config.privacy && !expired, |bar| {
+                        bar.child(
+                            div()
+                                .h_full()
+                                .w(relative(limit.remaining() as f32 / 100.))
+                                .bg(rgb(bar_color))
+                                .rounded_full(),
+                        )
+                    }),
+            )
+            .child(
+                label(
+                    if self.config.privacy {
+                        "Reset hidden".into()
+                    } else {
+                        format!(
+                            "{}{}",
+                            reset_text(limit.resets_at),
+                            if stale { " · cached" } else { "" }
+                        )
+                    },
+                    theme,
+                )
+                .text_size(px(11.)),
+            )
+    }
+    fn chart(&self, analysis: &Analysis, cx: &Context<Self>) -> Div {
+        let theme = self.theme();
+        let values = analysis
+            .buckets
+            .iter()
+            .map(|bucket| {
+                if self.token_chart {
+                    bucket.tokens.map(|count| count as f64)
+                } else {
+                    bucket.cost
+                }
+            })
+            .collect::<Vec<_>>();
+        let maximum = values
+            .iter()
+            .map(|value| value.iter().sum::<f64>())
+            .fold(0.0, f64::max);
+        let hover = self.hovered_day.and_then(|day| analysis.buckets.get(day));
+        let caption = hover
+            .map(|bucket| {
+                format!(
+                    "{} · {}",
+                    bucket.date.format("%b %-d"),
+                    if self.token_chart {
+                        format!("{} tokens", self.number(bucket.tokens.iter().sum()))
+                    } else {
+                        self.money(bucket.cost.iter().sum())
+                    }
+                )
+            })
+            .unwrap_or_else(|| {
+                format!(
+                    "{} · {}",
+                    self.period.label(),
+                    if self.token_chart {
+                        format!("{} tokens", self.number(analysis.totals.tokens.total()))
+                    } else {
+                        self.spend(&analysis.totals)
+                    }
+                )
+            });
+        panel(theme)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .child(title("Daily usage", theme))
+                    .child(div().flex_1())
+                    .child(self.button(
+                        "chart-tokens",
+                        "Tokens",
+                        None,
+                        self.token_chart,
+                        UiAction::Metric(true),
+                        cx,
+                    ))
+                    .child(self.button(
+                        "chart-cost",
+                        "Reported cost",
+                        None,
+                        !self.token_chart,
+                        UiAction::Metric(false),
+                        cx,
+                    )),
+            )
+            .child(
+                label(
+                    if self.config.privacy {
+                        "Values hidden".into()
+                    } else {
+                        caption
+                    },
+                    theme,
+                )
+                .text_size(px(12.))
+                .mt(px(8.)),
+            )
+            .child(
+                div()
+                    .id("daily-plot")
+                    .mt(px(20.))
+                    .h(px(140.))
+                    .flex()
+                    .items_end()
+                    .gap(px(5.))
+                    .on_hover(cx.listener(|view, hovered: &bool, _, cx| {
+                        if !hovered && view.hovered_day.take().is_some() {
+                            cx.notify();
+                        }
+                    }))
+                    .when(self.config.privacy || maximum == 0.0, |plot| {
+                        plot.items_center().justify_center().child(label(
+                            if self.config.privacy {
+                                "Values hidden"
+                            } else if self.token_chart {
+                                "No token usage in this period"
+                            } else {
+                                "No reported cost in this period"
+                            },
+                            theme,
+                        ))
+                    })
+                    .when(!self.config.privacy && maximum > 0.0, |plot| {
+                        plot.children(values.iter().enumerate().map(|(index, values)| {
+                            div()
+                                .id(SharedString::from(format!("day-{index}")))
+                                .flex_1()
+                                .min_w_0()
+                                .h_full()
+                                .flex()
+                                .flex_col()
+                                .justify_end()
+                                .gap(px(1.))
+                                .on_mouse_move(cx.listener(move |view, _, _, cx| {
+                                    if view.hovered_day != Some(index) {
+                                        view.hovered_day = Some(index);
+                                        cx.notify();
+                                    }
+                                }))
+                                .children(Provider::ALL.into_iter().rev().map(|provider| {
+                                    div()
+                                        .h(px((values[provider.index()] / maximum * 132.0) as f32))
+                                        .w_full()
+                                        .rounded(px(2.))
+                                        .bg(rgb(color(provider)))
+                                }))
+                        }))
+                    }),
+            )
+            .child(
+                div()
+                    .mt(px(9.))
+                    .flex()
+                    .justify_between()
+                    .child(
+                        label(
+                            analysis
+                                .buckets
+                                .first()
+                                .map(|bucket| bucket.date.format("%b %-d").to_string())
+                                .unwrap_or_default(),
+                            theme,
+                        )
+                        .text_size(px(11.)),
+                    )
+                    .child(
+                        label(
+                            analysis
+                                .buckets
+                                .last()
+                                .map(|bucket| bucket.date.format("%b %-d").to_string())
+                                .unwrap_or_default(),
+                            theme,
+                        )
+                        .text_size(px(11.)),
+                    ),
+            )
+            .child(div().mt(px(14.)).flex().gap(px(18.)).children(
+                self.visible_accounts().iter().map(|status| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(dot(status.provider))
+                        .child(label(status.provider.name(), theme).text_size(px(12.)))
+                }),
+            ))
+    }
+    pub(super) fn models_view(&self, cx: &Context<Self>) -> Div {
         let theme = self.theme();
         let analysis = analytics::analyze(
             self.data(),
@@ -402,719 +716,146 @@ impl Dashboard {
             self.provider,
             Utc::now(),
         );
-        let total = &analysis.totals;
-        let change = if analysis.previous_estimated > 0.0 {
-            format!(
-                "{:+.0}% vs previous period",
-                (total.estimated / analysis.previous_estimated - 1.0) * 100.0
-            )
-        } else {
-            "Based on available token history".into()
-        };
-        let cache = if total.tokens.total() > 0 {
-            format!(
-                "{:.0}% of tokens served from cache",
-                total.tokens.cache_read as f64 / total.tokens.total() as f64 * 100.0
-            )
-        } else {
-            "Cache reads are tracked separately".into()
-        };
-        div().flex().flex_col().gap(px(19.)).when(self.demo, |root| root.child(self.demo_banner(cx))).child(self.intro("Every token. In view.","A little clarity for your AI coding stack.",cx,true).mb(px(0.))).child(self.filters(cx))
-            .child(div().flex().gap(px(14.)).child(self.stat("Estimated API-equivalent cost",self.money(total.estimated),if self.config.privacy {"Values hidden".into()}else{change},None)).child(self.stat("Tokens used",self.number(total.tokens.total()),format!("{} sessions · {} usage events",self.number(total.sessions as u64),self.number(total.events as u64)),None)).child(self.stat("Saved through cache",self.money(total.cache_savings),if self.config.privacy{"Values hidden".into()}else{cache},Some(0x33958a))))
-            .child(div().flex().gap(px(16.)).child(self.chart(&analysis,cx).flex_1().min_w_0()).child(self.budget(cx)))
-            .when(total.unpriced_rows>0,|root|root.child(div().rounded(px(10.)).bg(rgb(theme.wash)).p(px(12.)).flex().items_center().gap(px(10.)).child(label(format!("{} events have no known model price. Cost totals are partial; token totals include them.",total.unpriced_rows),theme)).child(div().flex_1()).child(self.button("unknown-prices","Model prices",None,false,UiAction::Page(Page::Settings),cx))))
-            .child(div().flex().justify_between().items_center().child(title("Your providers",theme)).child(label("Click a provider to focus its history",theme)))
-            .child(div().flex().gap(px(14.)).children(Provider::ALL.into_iter().filter(|p|self.provider.is_none_or(|selected|selected==*p)).map(|provider|self.provider_card(provider,&analysis.providers[provider.index()],cx))))
-            .child(div().flex().gap(px(16.)).child(self.models(&analysis).flex_1().min_w_0()).child(self.token_mix(total).w(px(270.))))
-            .child(label("API-equivalent estimates are not your subscription bill. Reported Cursor spend is shown separately. USD.",theme).text_size(px(11.)))
-            .children(self.data().notices.iter().map(|notice|label(notice.clone(),theme)))
+        self.page_body(cx).child(self.toolbar(cx,true))
+            .child(panel(theme).p(px(0.)).overflow_hidden().child(div().px(px(18.)).py(px(16.)).flex().justify_between().child(title("Model usage",theme)).child(label(format!("{} models",analysis.models.len()),theme)))
+                .child(self.model_row("Model","Account","Tokens","Cache read","Reported cost",true))
+                .when(analysis.models.is_empty(),|table|table.child(div().p(px(28.)).child(label("No model usage in this period",theme))))
+                .children(analysis.models.iter().map(|row|self.model_row(&row.model,row.provider.name(),&self.number(row.totals.tokens.total()),&self.number(row.totals.tokens.cache_read),&self.spend(&row.totals),false))))
+            .child(label("Models are grouped by the account that recorded the usage. No model pricing is applied.",theme).text_size(px(12.)))
     }
-    fn chart(&self, analysis: &Analysis, cx: &Context<Self>) -> Div {
-        let theme = self.theme();
-        let values: Vec<[f64; 3]> = analysis
-            .buckets
-            .iter()
-            .map(|bucket| {
-                if self.config.privacy {
-                    [0.; 3]
-                } else if self.token_chart {
-                    bucket.tokens.map(|v| v as f64)
-                } else {
-                    bucket.cost
-                }
-            })
-            .collect();
-        let maximum = values
-            .iter()
-            .map(|values| values.iter().sum::<f64>())
-            .fold(0.0, f64::max)
-            .max(1.0);
-        let caption = self
-            .hovered_day
-            .and_then(|i| analysis.buckets.get(i))
-            .map(|bucket| {
-                format!(
-                    "{}  ·  {}",
-                    bucket.date.format("%b %-d"),
-                    if self.token_chart {
-                        self.number(bucket.tokens.iter().sum())
-                    } else {
-                        self.money(bucket.cost.iter().sum())
-                    }
-                )
-            })
-            .unwrap_or_else(|| {
-                format!(
-                    "{}  —  {}",
-                    analysis.buckets.first().unwrap().date.format("%b %-d"),
-                    analysis.buckets.last().unwrap().date.format("%b %-d")
-                )
-            });
-        panel(theme)
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .items_center()
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(5.))
-                            .child(title("Usage rhythm", theme))
-                            .child(label(caption, theme).text_size(px(11.))),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(3.))
-                            .child(self.button(
-                                "chart-cost",
-                                "Cost",
-                                None,
-                                !self.token_chart,
-                                UiAction::Metric(false),
-                                cx,
-                            ))
-                            .child(self.button(
-                                "chart-tokens",
-                                "Tokens",
-                                None,
-                                self.token_chart,
-                                UiAction::Metric(true),
-                                cx,
-                            )),
-                    ),
-            )
-            .child(
-                div()
-                    .h(px(190.))
-                    .mt(px(18.))
-                    .relative()
-                    .flex()
-                    .gap(px(14.))
-                    .child(
-                        div()
-                            .w(px(36.))
-                            .h_full()
-                            .flex()
-                            .flex_col()
-                            .justify_between()
-                            .text_size(px(10.))
-                            .text_color(rgb(theme.muted))
-                            .child(if self.token_chart {
-                                self.number(maximum as u64)
-                            } else {
-                                self.money(maximum)
-                            })
-                            .child(if self.token_chart {
-                                self.number((maximum / 2.0) as u64)
-                            } else {
-                                self.money(maximum / 2.0)
-                            })
-                            .child(if self.config.privacy { "••" } else { "0" }),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .h_full()
-                            .relative()
-                            .child(
-                                div()
-                                    .absolute()
-                                    .top(px(1.))
-                                    .w_full()
-                                    .h(px(1.))
-                                    .bg(rgb(theme.line)),
-                            )
-                            .child(
-                                div()
-                                    .absolute()
-                                    .top(px(94.))
-                                    .w_full()
-                                    .h(px(1.))
-                                    .bg(rgb(theme.line)),
-                            )
-                            .child(
-                                div()
-                                    .absolute()
-                                    .bottom(px(0.))
-                                    .w_full()
-                                    .h(px(1.))
-                                    .bg(rgb(theme.line)),
-                            )
-                            .child(
-                                div()
-                                    .relative()
-                                    .size_full()
-                                    .flex()
-                                    .items_end()
-                                    .gap(px(if values.len() > 40 { 2. } else { 5. }))
-                                    .children(values.iter().enumerate().map(|(index, values)| {
-                                        div()
-                                            .id(("chart-day", index))
-                                            .flex_1()
-                                            .min_w_0()
-                                            .h_full()
-                                            .flex()
-                                            .flex_col()
-                                            .justify_end()
-                                            .gap(px(1.))
-                                            .cursor_pointer()
-                                            .opacity(
-                                                if self.hovered_day.is_none_or(|day| day == index) {
-                                                    1.0
-                                                } else {
-                                                    0.45
-                                                },
-                                            )
-                                            .children(Provider::ALL.into_iter().rev().map(
-                                                |provider| {
-                                                    div()
-                                                        .w_full()
-                                                        .h(px((values[provider.index()] / maximum
-                                                            * 176.)
-                                                            as f32))
-                                                        .min_h(px(
-                                                            if values[provider.index()] > 0.0 {
-                                                                2.
-                                                            } else {
-                                                                0.
-                                                            },
-                                                        ))
-                                                        .rounded(px(2.))
-                                                        .bg(rgb(color(provider)))
-                                                },
-                                            ))
-                                            .on_hover(cx.listener(
-                                                move |view, hovered: &bool, _, cx| {
-                                                    view.hovered_day =
-                                                        if *hovered { Some(index) } else { None };
-                                                    cx.notify();
-                                                },
-                                            ))
-                                    })),
-                            ),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(15.))
-                    .mt(px(15.))
-                    .ml(px(50.))
-                    .children(Provider::ALL.into_iter().map(|provider| {
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .child(dot(provider))
-                            .child(label(provider.name(), theme).text_size(px(10.)))
-                    })),
-            )
-    }
-    fn budget(&self, cx: &Context<Self>) -> Div {
-        let theme = self.theme();
-        let totals =
-            analytics::analyze(self.data(), &self.config, Period::Month, None, Utc::now()).totals;
-        let percent = (totals.estimated / self.config.monthly_budget * 100.0).min(100.0);
-        panel(theme)
-            .w(px(224.))
-            .flex_shrink_0()
-            .flex()
-            .flex_col()
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .items_center()
-                    .child(title("Keep your pace", theme))
-                    .child(icon("limits", theme)),
-            )
-            .child(
-                label("30-day estimate budget", theme)
-                    .mt(px(7.))
-                    .text_size(px(11.)),
-            )
-            .child(
-                div()
-                    .font_family(display_font())
-                    .text_size(px(29.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .mt(px(24.))
-                    .child(self.money((self.config.monthly_budget - totals.estimated).max(0.))),
-            )
-            .child(
-                label("of your estimate budget left", theme)
-                    .text_size(px(11.))
-                    .mt(px(5.)),
-            )
-            .child(
-                div()
-                    .h(px(7.))
-                    .rounded_full()
-                    .bg(rgb(theme.line))
-                    .mt(px(18.))
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .h_full()
-                            .w(relative(if self.config.privacy {
-                                0.0
-                            } else {
-                                percent as f32 / 100.0
-                            }))
-                            .bg(rgb(theme.accent)),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .mt(px(10.))
-                    .child(label(self.money(totals.estimated), theme).text_size(px(11.)))
-                    .child(label(self.money(self.config.monthly_budget), theme).text_size(px(11.))),
-            )
-            .child(div().flex_1().min_h(px(14.)))
-            .child(
-                label(
-                    if totals.unpriced_rows > 0 {
-                        "Some model prices are missing"
-                    } else if percent >= 100.0 {
-                        "Your estimate budget is reached"
-                    } else {
-                        "A guide to usage, not a bill"
-                    },
-                    theme,
-                )
-                .text_size(px(11.)),
-            )
-            .child(
-                self.button(
-                    "budget-settings",
-                    "Adjust budget",
-                    None,
-                    false,
-                    UiAction::Page(Page::Settings),
-                    cx,
-                )
-                .mt(px(14.))
-                .w_full(),
-            )
-    }
-    fn provider_card(
+    fn model_row(
         &self,
-        provider: Provider,
-        totals: &Totals,
-        cx: &Context<Self>,
-    ) -> Stateful<Div> {
+        model: &str,
+        account: &str,
+        tokens: &str,
+        cache: &str,
+        cost: &str,
+        heading: bool,
+    ) -> Div {
         let theme = self.theme();
-        let status = &self.data().providers[provider.index()];
-        panel(theme)
-            .id(SharedString::from(format!(
-                "provider-card-{}",
-                provider.key()
-            )))
-            .flex_1()
-            .min_w_0()
-            .cursor_pointer()
-            .hover(move |style| style.border_color(rgb(color(provider))))
-            .on_click(cx.listener(move |view, _, _, cx| {
-                view.provider = if view.provider == Some(provider) {
-                    None
-                } else {
-                    Some(provider)
-                };
-                cx.notify();
-            }))
+        div()
+            .h(px(if heading { 38. } else { 48. }))
+            .px(px(18.))
+            .flex()
+            .items_center()
+            .gap(px(16.))
+            .border_t_1()
+            .border_color(rgb(theme.line))
+            .when(heading, |row| row.bg(rgb(theme.bg)))
             .child(
-                div()
-                    .flex()
-                    .gap(px(10.))
-                    .items_center()
-                    .child(provider_mark(provider, self.config.dark))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(3.))
-                            .child(title(provider.name(), theme))
-                            .child(
-                                label(
-                                    status.plan.clone().unwrap_or_else(|| {
-                                        if status.connected {
-                                            "Local history"
-                                        } else {
-                                            "Not connected"
-                                        }
-                                        .into()
-                                    }),
-                                    theme,
-                                )
-                                .text_size(px(10.)),
-                            ),
-                    )
-                    .child(div().flex_1())
-                    .child(icon("arrow", theme)),
+                self.table_cell(model, None, false, heading)
+                    .flex_1()
+                    .min_w_0(),
             )
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .mt(px(18.))
-                    .items_end()
-                    .child(
-                        div()
-                            .font_family(display_font())
-                            .text_size(px(25.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(self.money(totals.estimated)),
-                    )
-                    .child(
-                        label(
-                            format!("{} tokens", self.number(totals.tokens.total())),
-                            theme,
-                        )
-                        .text_size(px(11.)),
-                    ),
-            )
-            .child(
-                label("Estimated API equivalent", theme)
-                    .text_size(px(10.))
-                    .mt(px(3.)),
-            )
-            .when(totals.reported_rows > 0, |card| {
-                card.child(
-                    label(
-                        format!("{} reported by Cursor", self.money(totals.reported)),
-                        theme,
-                    )
-                    .text_size(px(10.))
-                    .mt(px(8.)),
-                )
-            })
-            .child(div().h(px(1.)).bg(rgb(theme.line)).my(px(13.)))
-            .child(if let Some(limit) = status.limits.first() {
-                let expired = limit.expired(Utc::now());
-                div()
-                    .flex()
-                    .justify_between()
-                    .child(
-                        label(
-                            format!(
-                                "{}{}",
-                                limit.label,
-                                if status.stale || expired {
-                                    " · cached"
-                                } else {
-                                    ""
-                                }
-                            ),
-                            theme,
-                        )
-                        .text_size(px(10.)),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(rgb(color(provider)))
-                            .child(if self.config.privacy {
-                                "••••".into()
-                            } else if expired {
-                                "Refresh needed".into()
-                            } else {
-                                format!("{:.0}% left", limit.remaining())
-                            }),
-                    )
-            } else {
-                label(
-                    if self.refreshing {
-                        "Checking sources…"
-                    } else if !self.config.online {
-                        "Account checks are off"
-                    } else {
-                        "Limits unavailable"
-                    },
-                    theme,
-                )
-                .text_size(px(11.))
-            })
+            .child(self.table_cell(account, Some(105.), false, heading))
+            .child(self.table_cell(tokens, Some(110.), true, heading))
+            .child(self.table_cell(cache, Some(110.), true, heading))
+            .child(self.table_cell(cost, Some(125.), true, heading))
     }
-    fn models(&self, analysis: &Analysis) -> Div {
+    fn table_cell(&self, text: &str, width: Option<f32>, numeric: bool, heading: bool) -> Div {
         let theme = self.theme();
-        panel(theme)
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .items_center()
-                    .mb(px(17.))
-                    .child(title("Model breakdown", theme))
-                    .child(label("Estimated cost", theme).text_size(px(11.))),
-            )
-            .when(analysis.models.is_empty(), |panel| {
-                panel.child(
-                    label(
-                        "Your models will appear after your first usage scan.",
-                        theme,
-                    )
-                    .py(px(25.)),
-                )
+        div()
+            .when_some(width, |cell, width| cell.w(px(width)).flex_shrink_0())
+            .text_size(px(if heading { 12. } else { 13. }))
+            .truncate()
+            .text_color(rgb(if heading { theme.muted } else { theme.ink }))
+            .when(numeric, |cell| {
+                cell.text_align(TextAlign::Right)
+                    .when(!heading, |cell| cell.font_family(mono_font()))
             })
-            .children(analysis.models.iter().take(7).map(|row| {
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .py(px(10.))
-                    .border_t_1()
-                    .border_color(rgb(theme.line))
-                    .child(dot(row.provider))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_size(px(12.))
-                            .truncate()
-                            .child(row.model.clone()),
-                    )
-                    .child(
-                        label(self.number(row.totals.tokens.total()), theme)
-                            .font_family(mono_font())
-                            .text_size(px(10.))
-                            .w(px(70.))
-                            .text_right(),
-                    )
-                    .child(
-                        div()
-                            .w(px(78.))
-                            .text_right()
-                            .text_size(px(12.))
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(if row.totals.unpriced_rows > 0 {
-                                "Unpriced".into()
-                            } else {
-                                self.money(row.totals.estimated)
-                            }),
-                    )
-            }))
-    }
-    fn token_mix(&self, totals: &Totals) -> Div {
-        let theme = self.theme();
-        let total = totals.tokens.total().max(1) as f32;
-        panel(theme)
-            .child(title("Inside your tokens", theme))
-            .child(
-                label("Cache is included in the total", theme)
-                    .text_size(px(10.))
-                    .mt(px(7.)),
-            )
-            .children(
-                [
-                    ("Input", totals.tokens.input, 0x7ba7da),
-                    ("Output", totals.tokens.output, 0x8975d5),
-                    ("Cache read", totals.tokens.cache_read, 0x33958a),
-                    ("Cache write", totals.tokens.cache_write, 0xd18d68),
-                ]
-                .into_iter()
-                .map(|(name, value, color)| {
-                    div()
-                        .mt(px(17.))
-                        .child(
-                            div()
-                                .flex()
-                                .justify_between()
-                                .mb(px(7.))
-                                .child(label(name, theme).text_size(px(11.)))
-                                .child(div().text_size(px(11.)).child(self.number(value))),
-                        )
-                        .child(
-                            div().h(px(4.)).rounded_full().bg(rgb(theme.line)).child(
-                                div()
-                                    .h_full()
-                                    .w(relative(if self.config.privacy {
-                                        0.0
-                                    } else {
-                                        value as f32 / total
-                                    }))
-                                    .rounded_full()
-                                    .bg(rgb(color)),
-                            ),
-                        )
-                }),
-            )
+            .child(text.to_owned())
     }
     pub(super) fn limits_view(&self, cx: &Context<Self>) -> Div {
         let theme = self.theme();
-        div().flex().flex_col().gap(px(18.)).when(self.demo, |root| root.child(self.demo_banner(cx))).child(self.intro("Room to keep building.","Your subscription allowances, with the next reset in sight.",cx,false).mb(px(0.)))
-            .child(div().flex().items_center().gap(px(12.)).child(label(if self.config.online{"Account limits refresh with your sources"}else{"Enable account checks to see live allowances"},theme)).child(div().flex_1()).child(self.button("limits-online",if self.config.online{"Account checks on"}else{"Enable account checks"},Some("connections"),self.config.online,UiAction::Online,cx)).child(self.button("limits-refresh","Refresh",Some("refresh"),false,UiAction::Refresh,cx)))
-            .children(self.data().providers.iter().filter(|status|self.config.enabled[status.provider.index()]).map(|status|self.limit_panel(status,cx)))
-            .child(label("Expired windows need a fresh account reading. Cached percentages do not predict your next allowance.",theme).text_size(px(11.)))
-    }
-    fn limit_panel(&self, status: &ProviderStatus, cx: &Context<Self>) -> Div {
-        let theme = self.theme();
-        panel(theme)
+        let accounts = self.visible_accounts();
+        self.page_body(cx)
             .child(
                 div()
                     .flex()
-                    .gap(px(12.))
                     .items_center()
-                    .child(provider_mark(status.provider, self.config.dark))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(5.))
-                            .child(title(status.provider.name(), theme))
-                            .child(label(
-                                status
-                                    .plan
-                                    .clone()
-                                    .unwrap_or_else(|| "Subscription limits".into()),
-                                theme,
-                            )),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        label(
-                            if status.stale {
-                                "Cached / unavailable"
-                            } else {
-                                "Current account reading"
-                            },
-                            theme,
-                        )
-                        .text_size(px(11.)),
-                    )
+                    .justify_between()
+                    .child(label("Subscription allowances", theme))
                     .child(self.button(
-                        format!("dashboard-{}", status.provider.key()),
-                        "Open account",
-                        Some("arrow"),
+                        "limits-connect",
+                        "Connections",
+                        None,
                         false,
-                        UiAction::OpenProvider(status.provider),
+                        UiAction::Page(Page::Connections),
                         cx,
                     )),
             )
-            .when(status.limits.is_empty(), |panel| {
-                panel.child(
-                    div()
-                        .bg(rgb(theme.bg))
-                        .rounded(px(11.))
-                        .mt(px(20.))
-                        .p(px(20.))
-                        .child(label(status.detail.clone(), theme)),
-                )
+            .when(accounts.is_empty(), |body| {
+                body.child(panel(theme).child(label("No connected accounts", theme)))
             })
-            .child(div().flex().flex_wrap().gap(px(18.)).mt(px(22.)).children(
-                status.limits.iter().map(|limit| {
-                    let expired = limit.expired(Utc::now());
-                    let reset = reset_text(limit.resets_at);
-                    div()
-                        .flex_1()
-                        .min_w(px(215.))
-                        .max_w(px(330.))
-                        .rounded(px(12.))
-                        .bg(rgb(theme.bg))
-                        .p(px(19.))
-                        .child(label(limit.label.clone(), theme))
-                        .child(
-                            div()
-                                .font_family(display_font())
-                                .text_size(px(30.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .mt(px(12.))
-                                .mb(px(4.))
-                                .child(if self.config.privacy {
-                                    "••••".into()
-                                } else if expired {
-                                    "—".into()
-                                } else {
-                                    format!("{:.0}%", limit.remaining())
-                                }),
+            .children(accounts.iter().map(|status| {
+                panel(theme)
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(10.))
+                            .child(provider_mark(status.provider, self.config.dark))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .child(title(status.provider.account_name(), theme))
+                                    .child(
+                                        label(
+                                            status
+                                                .plan
+                                                .as_deref()
+                                                .map(plan_name)
+                                                .unwrap_or_else(|| "Plan not reported".into()),
+                                            theme,
+                                        )
+                                        .mt(px(3.)),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .mt(px(20.))
+                            .flex()
+                            .gap(px(24.))
+                            .when(status.limits.is_empty(), |row| {
+                                row.child(label(
+                                    if self.config.online {
+                                        "No account allowances reported"
+                                    } else {
+                                        "Enable account sync to read allowances"
+                                    },
+                                    theme,
+                                ))
+                            })
+                            .children(status.limits.iter().map(|limit| {
+                                div().flex_1().min_w_0().child(self.quota(
+                                    limit,
+                                    status.stale,
+                                    status.provider,
+                                ))
+                            })),
+                    )
+                    .child(
+                        label(
+                            status
+                                .checked_at
+                                .map(|at| {
+                                    format!(
+                                        "Checked {}",
+                                        at.with_timezone(&Local).format("%b %-d, %H:%M")
+                                    )
+                                })
+                                .unwrap_or_else(|| "Not checked".into()),
+                            theme,
                         )
-                        .child(
-                            label(
-                                if expired {
-                                    "Window ended · refresh needed"
-                                } else {
-                                    "of allowance left"
-                                },
-                                theme,
-                            )
-                            .text_size(px(11.)),
-                        )
-                        .child(
-                            div()
-                                .h(px(6.))
-                                .rounded_full()
-                                .bg(rgb(theme.line))
-                                .mt(px(19.))
-                                .overflow_hidden()
-                                .child(
-                                    div()
-                                        .h_full()
-                                        .w(relative(if self.config.privacy || expired {
-                                            0.0
-                                        } else {
-                                            limit.remaining() as f32 / 100.0
-                                        }))
-                                        .bg(rgb(if limit.remaining() < 15.0 {
-                                            0xc96666
-                                        } else {
-                                            color(status.provider)
-                                        })),
-                                ),
-                        )
-                        .child(label(reset, theme).text_size(px(11.)).mt(px(12.)))
-                }),
-            ))
-            .child(
-                label(
-                    status
-                        .checked_at
-                        .map(|at| {
-                            format!(
-                                "Checked {}{}",
-                                at.with_timezone(&Local).format("%b %-d, %-I:%M %p"),
-                                if status.stale {
-                                    " · cached values retained"
-                                } else {
-                                    ""
-                                }
-                            )
-                        })
-                        .unwrap_or_else(|| "No account reading yet".into()),
-                    theme,
-                )
-                .text_size(px(10.))
-                .mt(px(18.)),
-            )
+                        .text_size(px(11.))
+                        .mt(px(16.)),
+                    )
+            }))
     }
     pub(super) fn activity(&self, cx: &Context<Self>) -> Div {
         let theme = self.theme();
-        let records: Vec<&UsageRecord> = self
+        let records = self
             .data()
             .records
             .iter()
@@ -1122,201 +863,113 @@ impl Dashboard {
                 self.config.enabled[record.provider.index()]
                     && analytics::matches(record, self.period, self.provider, Utc::now())
             })
-            .collect();
-        let offset = self.activity_page * 40;
-        let selected = self
-            .detail
-            .as_ref()
-            .and_then(|id| records.iter().find(|r| &r.id == id));
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(19.))
-            .when(self.demo, |root| root.child(self.demo_banner(cx)))
-            .child(
-                self.intro(
-                    "The work behind the numbers.",
-                    "A timeline of usage events, with the source behind each reading.",
-                    cx,
-                    true,
-                )
-                .mb(px(0.)),
+            .collect::<Vec<_>>();
+        let page = self.activity_page.min(records.len().saturating_sub(1) / 40);
+        let start = page * 40;
+        self.page_body(cx)
+            .child(self.toolbar(cx, true))
+            .when_some(
+                self.detail
+                    .as_ref()
+                    .and_then(|id| records.iter().find(|record| record.id == *id)),
+                |body, record| body.child(self.usage_detail(record, cx)),
             )
-            .child(self.filters(cx))
-            .when_some(selected, |root, record| {
-                root.child(
-                    panel(theme)
-                        .child(
-                            div()
-                                .flex()
-                                .justify_between()
-                                .child(title("Usage detail", theme))
-                                .child(self.button(
-                                    "close-detail",
-                                    "Close",
-                                    None,
-                                    false,
-                                    UiAction::CloseDetail,
-                                    cx,
-                                )),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .gap(px(30.))
-                                .mt(px(16.))
-                                .child(self.token_mix(&record_totals(record, &self.config)))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .flex()
-                                        .flex_col()
-                                        .gap(px(12.))
-                                        .child(title(record.model.clone(), theme))
-                                        .child(label(
-                                            if self.config.privacy {
-                                                "Project hidden".into()
-                                            } else {
-                                                format!("Project: {}", record.project)
-                                            },
-                                            theme,
-                                        ))
-                                        .child(label(
-                                            if self.config.privacy {
-                                                "Source hidden".into()
-                                            } else {
-                                                format!("Source: {}", record.source)
-                                            },
-                                            theme,
-                                        ))
-                                        .child(label(
-                                            format!(
-                                                "Estimated API equivalent: {}",
-                                                price_for(&record.model, &self.config.prices)
-                                                    .map(|price| self
-                                                        .money(price.cost(&record.tokens)))
-                                                    .unwrap_or_else(|| "Unpriced".into())
-                                            ),
-                                            theme,
-                                        ))
-                                        .child(label(
-                                            format!(
-                                                "Reported spend: {}",
-                                                record
-                                                    .reported_cost
-                                                    .map(|cost| self.money(cost))
-                                                    .unwrap_or_else(|| "Not reported".into())
-                                            ),
-                                            theme,
-                                        )),
-                                ),
-                        ),
-                )
-            })
             .child(
                 panel(theme)
                     .p(px(0.))
                     .overflow_hidden()
                     .child(
                         div()
-                            .px(px(22.))
-                            .py(px(17.))
+                            .px(px(18.))
+                            .py(px(16.))
                             .flex()
+                            .items_center()
                             .justify_between()
-                            .child(title("Recent activity", theme))
-                            .child(label(
-                                format!(
-                                    "{} usage events · newest first",
-                                    self.number(records.len() as u64)
-                                ),
-                                theme,
+                            .child(title("Usage events", theme))
+                            .child(self.button(
+                                "activity-export",
+                                "Export CSV",
+                                Some("export"),
+                                false,
+                                UiAction::Export,
+                                cx,
                             )),
                     )
-                    .child(activity_row(
-                        "Time",
-                        "Provider / model",
-                        "Project",
-                        "Tokens",
-                        "Estimated",
-                        theme,
+                    .child(self.activity_columns(
+                        [
+                            "Time",
+                            "Account",
+                            "Model",
+                            "Project",
+                            "Tokens",
+                            "Reported cost",
+                        ],
                         true,
                     ))
-                    .when(records.is_empty(), |panel| {
-                        panel.child(
+                    .when(records.is_empty(), |table| {
+                        table.child(
                             div()
-                                .py(px(70.))
-                                .flex()
-                                .flex_col()
-                                .items_center()
-                                .gap(px(12.))
-                                .child(title("Your next session starts here", theme))
-                                .child(label(
-                                    "Connect a source, or choose a wider time range.",
-                                    theme,
-                                ))
-                                .child(self.button(
-                                    "activity-connect",
-                                    "Manage connections",
-                                    Some("connections"),
-                                    false,
-                                    UiAction::Page(Page::Connections),
-                                    cx,
-                                )),
+                                .p(px(28.))
+                                .child(label("No usage events in this period", theme)),
                         )
                     })
-                    .children(records.iter().skip(offset).take(40).map(|record| {
+                    .children(records.iter().skip(start).take(40).map(|record| {
+                        let id = record.id.clone();
                         div()
-                            .id(SharedString::from(format!("record-{}", record.id)))
+                            .id(SharedString::from(format!("record-{id}")))
                             .cursor_pointer()
                             .hover(move |style| style.bg(rgb(theme.bg)))
-                            .on_click(cx.listener({
-                                let id = record.id.clone();
-                                move |view, _, window, cx| {
-                                    view.perform(UiAction::Detail(id.clone()), window, cx)
-                                }
+                            .child(
+                                self.activity_columns(
+                                    [
+                                        &record
+                                            .timestamp
+                                            .with_timezone(&Local)
+                                            .format("%b %-d  %H:%M")
+                                            .to_string(),
+                                        record.provider.name(),
+                                        &record.model,
+                                        if self.config.privacy {
+                                            "Hidden"
+                                        } else {
+                                            &record.project
+                                        },
+                                        &self.number(record.tokens.total()),
+                                        &record
+                                            .reported_cost
+                                            .map(|cost| self.money(cost))
+                                            .unwrap_or_else(|| "—".into()),
+                                    ],
+                                    false,
+                                ),
+                            )
+                            .on_click(cx.listener(move |view, _, window, cx| {
+                                view.perform(UiAction::Detail(id.clone()), window, cx)
                             }))
-                            .child(activity_row(
-                                &record
-                                    .timestamp
-                                    .with_timezone(&Local)
-                                    .format("%b %-d  %H:%M")
-                                    .to_string(),
-                                &format!("{}  /  {}", record.provider.name(), record.model),
-                                if self.config.privacy {
-                                    "••••"
-                                } else if record.project.is_empty() {
-                                    "—"
-                                } else {
-                                    &record.project
-                                },
-                                &self.number(record.tokens.total()),
-                                &price_for(&record.model, &self.config.prices)
-                                    .map(|price| self.money(price.cost(&record.tokens)))
-                                    .unwrap_or_else(|| "Unpriced".into()),
-                                theme,
-                                false,
-                            ))
                     }))
                     .child(
                         div()
-                            .px(px(22.))
-                            .py(px(15.))
+                            .px(px(18.))
+                            .py(px(14.))
                             .border_t_1()
                             .border_color(rgb(theme.line))
                             .flex()
                             .items_center()
-                            .gap(px(9.))
-                            .child(label(
-                                format!(
-                                    "Showing {}–{} of {}",
-                                    if records.is_empty() { 0 } else { offset + 1 },
-                                    (offset + 40).min(records.len()),
-                                    records.len()
-                                ),
-                                theme,
-                            ))
+                            .gap(px(8.))
+                            .child(
+                                label(
+                                    format!(
+                                        "{}–{} of {}",
+                                        if records.is_empty() { 0 } else { start + 1 },
+                                        (start + 40).min(records.len()),
+                                        records.len()
+                                    ),
+                                    theme,
+                                )
+                                .text_size(px(12.)),
+                            )
                             .child(div().flex_1())
-                            .when(self.activity_page > 0, |row| {
+                            .when(page > 0, |row| {
                                 row.child(self.button(
                                     "activity-prev",
                                     "Previous",
@@ -1326,7 +979,7 @@ impl Dashboard {
                                     cx,
                                 ))
                             })
-                            .when(offset + 40 < records.len(), |row| {
+                            .when(start + 40 < records.len(), |row| {
                                 row.child(self.button(
                                     "activity-next",
                                     "Next",
@@ -1339,280 +992,347 @@ impl Dashboard {
                     ),
             )
     }
-    pub(super) fn connections(&self, cx: &Context<Self>) -> Div {
+    fn activity_columns(&self, columns: [&str; 6], heading: bool) -> Div {
+        let [time, account, model, project, tokens, cost] = columns;
         let theme = self.theme();
-        div().flex().flex_col().gap(px(18.)).child(self.intro("Bring your stack together.","Use your existing history and signed-in accounts. No new API keys needed.",cx,false).mb(px(0.)))
-            .child(panel(theme).flex().items_center().gap(px(18.)).child(div().flex_1().child(title("Account checks",theme)).child(label("Reads existing logins to check provider allowances and Cursor account history.",theme).mt(px(7.))).child(label("macOS may ask for Keychain access. Credentials are never saved by Open Usage.",theme).text_size(px(11.)).mt(px(6.)))).child(self.button("connections-online",if self.config.online{"Enabled"}else{"Enable"},None,self.config.online,UiAction::Online,cx)))
-            .children(Provider::ALL.into_iter().map(|provider|{
-                let status=&self.live.providers[provider.index()];
-                panel(theme).child(div().flex().gap(px(13.)).items_center().child(provider_mark(provider,self.config.dark)).child(div().flex_1().child(title(provider.name(),theme)).child(label(match provider{Provider::Codex=>"Codex CLI & desktop · ChatGPT subscription limits",Provider::Claude=>"Claude Code history · Claude subscription limits",Provider::Cursor=>"Cursor account history across machines · monthly allowance"},theme).mt(px(5.)).text_size(px(11.)))).child(self.button(format!("enabled-{}",provider.key()),if self.config.enabled[provider.index()]{"Tracking on"}else{"Paused"},None,self.config.enabled[provider.index()],UiAction::Enable(provider),cx)))
-                    .child(div().rounded(px(10.)).bg(rgb(theme.bg)).p(px(14.)).my(px(17.)).child(label(status.detail.clone(),theme)))
-                    .child(div().flex().gap(px(9.)).child(self.button(format!("add-folder-{}",provider.key()),"Add data folder",Some("connections"),false,UiAction::AddHome(provider),cx)).when(provider==Provider::Cursor,|row|row.child(self.button("cursor-import","Import usage CSV",Some("export"),false,UiAction::ImportCursor,cx))).when(provider==Provider::Cursor&&!self.config.cursor_imports.is_empty(),|row|row.child(self.button("cursor-clear","Remove import",None,false,UiAction::ClearCursor,cx))).child(div().flex_1()).child(self.button(format!("connect-open-{}",provider.key()),"Open account",Some("arrow"),false,UiAction::OpenProvider(provider),cx)))
-                    .when(!self.config.custom_homes[provider.index()].is_empty(),|card|card.child(label(format!("{} additional data folders",self.config.custom_homes[provider.index()].len()),theme).mt(px(12.)).text_size(px(11.))))
-            }))
-            .child(label("Cursor CSV imports take precedence over account history so the same events are not counted twice. Importing replaces the previous CSV.",theme).text_size(px(11.)))
-            .child(panel(theme).flex().items_center().justify_between().child(div().child(title("Take a look around",theme)).child(label("Explore every screen using clearly marked example data.",theme).mt(px(7.)))).child(self.button("connections-demo",if self.demo{"Use my data"}else{"Explore example data"},None,self.demo,UiAction::Demo,cx)))
-    }
-    pub(super) fn settings(&self, cx: &Context<Self>) -> Div {
-        let theme = self.theme();
-        div().flex().flex_col().gap(px(18.)).child(self.intro("Make it yours.","A few useful preferences. Everything is saved on this device.",cx,false).mb(px(0.)))
-            .child(panel(theme).child(title("Appearance & privacy",theme)).child(div().flex().items_center().justify_between().mt(px(22.)).child(div().child(title("Color theme",theme)).child(label("Choose a light or dark workspace",theme).mt(px(5.)))).child(self.button("settings-dark",if self.config.dark{"Dark"}else{"Light"},Some("theme"),self.config.dark,UiAction::Dark,cx)))
-                .child(div().flex().items_center().justify_between().border_t_1().border_color(rgb(theme.line)).pt(px(19.)).mt(px(19.)).child(div().child(title("Privacy mode",theme)).child(label("Hide amounts, charts, project names, and source paths · Ctrl/Cmd+P",theme).mt(px(5.)))).child(self.button("settings-privacy",if self.config.privacy{"Hidden"}else{"Visible"},Some("privacy"),self.config.privacy,UiAction::Privacy,cx))))
-            .child(panel(theme).child(title("Usage preferences",theme)).child(label("Estimate budget · USD for the past 30 days",theme).mt(px(19.))).child(div().flex().gap(px(7.)).mt(px(10.)).children([50.,100.,250.,500.,1000.].into_iter().map(|budget|self.button(format!("budget-{budget}"),format!("${budget:.0}"),None,self.config.monthly_budget==budget,UiAction::Budget(budget),cx))))
-                .child(label("Automatic refresh",theme).mt(px(24.))).child(div().flex().gap(px(7.)).mt(px(10.)).children([(60,"1 minute"),(300,"5 minutes"),(900,"15 minutes")].into_iter().map(|(seconds,name)|self.button(format!("interval-{seconds}"),name,None,self.config.refresh_seconds==seconds,UiAction::Interval(seconds),cx)))))
-            .child(panel(theme).child(title("Model prices",theme)).child(label("Import exact model IDs and USD rates per million tokens. Overrides apply to all history.",theme).mt(px(9.))).child(label("Unknown models stay unpriced. The baseline uses standard rates; long-context and fast-mode premiums may differ.",theme).text_size(px(11.)).mt(px(6.)))
-                .child(div().flex().gap(px(8.)).mt(px(20.)).child(self.button("price-template","Get CSV template",Some("export"),false,UiAction::PriceTemplate,cx)).child(self.button("price-import","Import model prices",Some("connections"),false,UiAction::ImportPrices,cx)).when(!self.config.prices.is_empty(),|row|row.child(self.button("price-reset","Reset to baseline",None,false,UiAction::ResetPrices,cx))))
-                .children(self.config.prices.iter().map(|(model,price)|label(format!("{model}  ·  input ${:.2} / output ${:.2}",price.input,price.output),theme).mt(px(12.)))))
-            .child(panel(theme).child(title("Keyboard shortcuts",theme)).child(div().flex().gap(px(40.)).mt(px(17.)).child(label("Ctrl/Cmd + 1–5    Switch view\nCtrl/Cmd + R        Refresh usage\nCtrl/Cmd + P        Privacy mode",theme).line_height(px(25.)).whitespace_normal()).child(label("C / T                    Cost / tokens\nL                           Subscription limits\nTab / Shift+Tab     Move between controls",theme).line_height(px(25.)).whitespace_normal())))
-            .child(label("Open Usage 0.1.0 · Rust + GPUI · No telemetry or cloud sync",theme).text_size(px(11.)))
-    }
-    pub(super) fn compact_view(&self, cx: &Context<Self>) -> Stateful<Div> {
-        let theme = self.theme();
-        let analysis =
-            analytics::analyze(self.data(), &self.config, Period::Today, None, Utc::now());
         div()
-            .size_full()
-            .id("compact-scroll")
-            .overflow_y_scroll()
-            .p(px(24.))
+            .h(px(if heading { 38. } else { 45. }))
+            .px(px(18.))
             .flex()
-            .flex_col()
-            .gap(px(16.))
+            .items_center()
+            .gap(px(12.))
+            .border_t_1()
+            .border_color(rgb(theme.line))
+            .when(heading, |row| row.bg(rgb(theme.bg)))
+            .child(self.table_cell(time, Some(118.), false, heading))
+            .child(self.table_cell(account, Some(70.), false, heading))
+            .child(
+                self.table_cell(model, None, false, heading)
+                    .flex_1()
+                    .min_w_0(),
+            )
+            .child(self.table_cell(project, Some(118.), false, heading))
+            .child(self.table_cell(tokens, Some(88.), true, heading))
+            .child(self.table_cell(cost, Some(110.), true, heading))
+    }
+    fn usage_detail(&self, record: &UsageRecord, cx: &Context<Self>) -> Div {
+        let theme = self.theme();
+        panel(theme)
             .child(
                 div()
                     .flex()
-                    .justify_between()
                     .items_center()
-                    .child(title("open usage", theme))
+                    .gap(px(10.))
+                    .child(title("Usage details", theme))
+                    .child(div().flex_1())
+                    .child(self.button(
+                        "detail-close",
+                        "Close",
+                        None,
+                        false,
+                        UiAction::CloseDetail,
+                        cx,
+                    )),
+            )
+            .child(
+                div()
+                    .mt(px(16.))
+                    .flex()
+                    .gap(px(18.))
+                    .child(self.metric("Account", record.provider.name().into(), &record.model))
+                    .child(
+                        self.metric(
+                            "Reported cost",
+                            record
+                                .reported_cost
+                                .map(|cost| self.money(cost))
+                                .unwrap_or_else(|| "—".into()),
+                            if record.reported_cost.is_some() {
+                                "Provider reported"
+                            } else {
+                                "Not reported"
+                            },
+                        ),
+                    ),
+            )
+            .child(
+                div()
+                    .mt(px(20.))
+                    .pt(px(16.))
+                    .border_t_1()
+                    .border_color(rgb(theme.line))
+                    .flex()
+                    .gap(px(16.))
+                    .child(self.metric("Input", self.number(record.tokens.input), "Uncached"))
+                    .child(self.metric(
+                        "Output",
+                        self.number(record.tokens.output),
+                        "Includes reasoning",
+                    ))
+                    .child(self.metric(
+                        "Cache read",
+                        self.number(record.tokens.cache_read),
+                        "Cached input",
+                    ))
+                    .child(self.metric(
+                        "Cache write",
+                        self.number(record.tokens.cache_write),
+                        "Stored context",
+                    )),
+            )
+            .when(!self.config.privacy, |detail| {
+                detail
+                    .child(
+                        label(
+                            format!(
+                                "Project: {}",
+                                if record.project.is_empty() {
+                                    "Not reported"
+                                } else {
+                                    &record.project
+                                }
+                            ),
+                            theme,
+                        )
+                        .mt(px(16.)),
+                    )
+                    .child(
+                        label(format!("Source: {}", record.source), theme)
+                            .text_size(px(11.))
+                            .mt(px(4.))
+                            .overflow_hidden(),
+                    )
+            })
+    }
+    pub(super) fn connections(&self, cx: &Context<Self>) -> Div {
+        let theme = self.theme();
+        self.page_body(cx)
+            .child(panel(theme).flex().items_center().gap(px(20.)).child(div().flex_1().child(title("Account sync",theme))
+                .child(label("Read usage and allowances from existing signed-in accounts.",theme).mt(px(6.))))
+                .child(self.button("connections-sync",if self.config.online{"Pause"}else{"Enable"},None,self.config.online,UiAction::Online,cx)))
+            .children(Provider::ALL.into_iter().map(|provider|{
+                let status=&self.live.providers[provider.index()];
+                panel(theme).child(div().flex().items_center().gap(px(12.)).child(provider_mark(provider,self.config.dark))
+                    .child(div().flex_1().child(title(provider.account_name(),theme)).child(label(status.plan.as_deref().map(plan_name).unwrap_or_else(||if status.connected{"Local history available".into()}else{"Not connected".into()}),theme).mt(px(4.))))
+                    .child(self.button(format!("enable-{}",provider.key()),if self.config.enabled[provider.index()]{"Tracking"}else{"Paused"},None,self.config.enabled[provider.index()],UiAction::Enable(provider),cx)))
+                    .child(label(status.detail.clone(),theme).mt(px(14.)))
+                    .child(div().mt(px(16.)).flex().items_center().gap(px(8.))
+                        .child(self.button(format!("add-home-{}",provider.key()),"Add folder",Some("connections"),false,UiAction::AddHome(provider),cx))
+                        .when(provider==Provider::Cursor,|row|row.child(self.button("cursor-csv","Import CSV",Some("export"),false,UiAction::ImportCursor,cx)))
+                        .when(provider==Provider::Cursor&&!self.config.cursor_imports.is_empty(),|row|row.child(self.button("cursor-clear","Remove import",None,false,UiAction::ClearCursor,cx)))
+                        .child(div().flex_1()).child(self.button(format!("open-account-{}",provider.key()),"Open account",Some("arrow"),false,UiAction::OpenProvider(provider),cx)))
+                    .when(!self.config.custom_homes[provider.index()].is_empty(),|card|card.child(label(format!("{} additional folders",self.config.custom_homes[provider.index()].len()),theme).text_size(px(12.)).mt(px(12.))))
+            }))
+            .child(label("Cursor CSV replaces account history. Codex and Claude use local history. Credentials are never stored; macOS may request Keychain access.",theme).text_size(px(12.)))
+    }
+    pub(super) fn settings(&self, cx: &Context<Self>) -> Div {
+        let theme = self.theme();
+        self.page_body(cx)
+            .child(panel(theme).child(title("Display",theme))
+                .child(self.preference_row("Appearance","",self.button("theme-toggle",if self.config.dark{"Dark"}else{"Light"},Some("theme"),false,UiAction::Dark,cx)))
+                .child(self.preference_row("Privacy mode","Hide amounts, tokens, projects and paths",self.button("privacy-toggle",if self.config.privacy{"Hidden"}else{"Visible"},Some("privacy"),self.config.privacy,UiAction::Privacy,cx))))
+            .child(panel(theme).child(title("Data",theme))
+                .child(div().mt(px(20.)).flex().items_center().justify_between().child(label("Automatic refresh",theme))
+                    .child(div().flex().gap(px(6.)).children([(60,"1 min"),(300,"5 min"),(900,"15 min")].into_iter().map(|(seconds,text)|self.button(format!("refresh-{seconds}"),text,None,self.config.refresh_seconds==seconds,UiAction::Interval(seconds),cx)))))
+                .child(label("Costs come from account usage. Token pricing and subscription fees are not calculated.",theme).mt(px(20.)).text_size(px(12.))))
+            .child(panel(theme).child(div().flex().justify_between().child(title(if cfg!(target_os="macos"){"Menu bar"}else{"System tray"},theme)).child(self.badge(if self.tray.is_some(){"Active"}else if self.tray_attempted{"Unavailable"}else{"Starting"},self.tray.is_some())))
+                .child(label(if self.tray.is_some(){"Click for quick view. Right-click for refresh and quit. Closing the window keeps usage tracking active."}else{"Closing the window quits the app when the system tray is unavailable."},theme).mt(px(12.)))
+                .when_some(self.tray_error.as_ref(),|panel,error|panel.child(label(error.clone(),theme).mt(px(10.)).text_size(px(12.))))
+                .child(div().flex().gap(px(8.)).mt(px(16.)).child(self.button("settings-quick","Quick view",Some("overview"),false,UiAction::Compact,cx)).child(self.button("settings-quit","Quit",None,false,UiAction::Quit,cx))))
+            .child(panel(theme).flex().items_center().justify_between().child(div().child(title("Example workspace",theme)).child(label("Preview with labeled sample accounts",theme).text_size(px(12.)).mt(px(5.))))
+                .child(self.button("settings-example",if self.demo{"Use my accounts"}else{"Show example"},None,self.demo,UiAction::Demo,cx)))
+    }
+    fn preference_row(&self, name: &str, description: &str, control: impl IntoElement) -> Div {
+        let theme = self.theme();
+        div()
+            .mt(px(16.))
+            .pt(px(16.))
+            .border_t_1()
+            .border_color(rgb(theme.line))
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(px(20.))
+            .child(
+                div()
+                    .child(div().text_size(px(14.)).child(name.to_owned()))
+                    .when(!description.is_empty(), |text| {
+                        text.child(
+                            label(description.to_owned(), theme)
+                                .mt(px(5.))
+                                .text_size(px(12.)),
+                        )
+                    }),
+            )
+            .child(control)
+    }
+    pub(super) fn compact_view(&self, cx: &Context<Self>) -> Div {
+        let theme = self.theme();
+        let analysis =
+            analytics::analyze(self.data(), &self.config, Period::Today, None, Utc::now());
+        let accounts = self.visible_accounts();
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(rgb(theme.panel))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .px(px(18.))
+                    .py(px(15.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .border_b_1()
+                    .border_color(rgb(theme.line))
+                    .child(title("Open Usage", theme))
+                    .child(div().flex_1())
                     .child(self.button(
                         "compact-full",
-                        "Dashboard",
+                        "Accounts",
                         Some("arrow"),
                         false,
                         UiAction::Page(Page::Overview),
                         cx,
                     )),
             )
-            .when(self.demo, |root| {
-                root.child(label("EXAMPLE DATA", theme).text_color(rgb(theme.accent)))
-            })
             .child(
-                panel(theme)
-                    .child(label("Today · estimated API equivalent", theme))
+                div()
+                    .id("quick-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p(px(18.))
                     .child(
                         div()
-                            .text_size(px(37.))
-                            .font_family(display_font())
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .mt(px(11.))
-                            .child(self.money(analysis.totals.estimated)),
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .mb(px(16.))
+                            .child(label(
+                                if self.demo {
+                                    "Today · Example data"
+                                } else {
+                                    "Today"
+                                },
+                                theme,
+                            ))
+                            .child(label(
+                                format!("{} tokens", self.number(analysis.totals.tokens.total())),
+                                theme,
+                            )),
                     )
-                    .child(
-                        label(
-                            format!(
-                                "{} tokens · {} sessions",
-                                self.number(analysis.totals.tokens.total()),
-                                self.number(analysis.totals.sessions as u64)
-                            ),
-                            theme,
-                        )
-                        .mt(px(7.)),
-                    ),
-            )
-            .children(
-                self.data()
-                    .providers
-                    .iter()
-                    .filter(|status| self.config.enabled[status.provider.index()])
-                    .map(|status| {
+                    .when(accounts.is_empty(), |body| {
+                        body.child(label("No connected accounts", theme))
+                    })
+                    .children(accounts.iter().map(|status| {
+                        let totals = &analysis.providers[status.provider.index()];
                         panel(theme)
-                            .p(px(15.))
+                            .p(px(16.))
+                            .mb(px(12.))
                             .child(
                                 div()
                                     .flex()
                                     .items_center()
-                                    .gap(px(10.))
-                                    .child(provider_mark(status.provider, self.config.dark))
-                                    .child(title(status.provider.name(), theme))
-                                    .child(div().flex_1())
-                                    .child(div().font_weight(FontWeight::SEMIBOLD).child(
-                                        self.money(
-                                            analysis.providers[status.provider.index()].estimated,
-                                        ),
-                                    )),
+                                    .gap(px(9.))
+                                    .child(
+                                        provider_mark(status.provider, self.config.dark)
+                                            .size(px(29.)),
+                                    )
+                                    .child(
+                                        title(status.provider.account_name(), theme)
+                                            .text_size(px(14.)),
+                                    ),
                             )
-                            .when(status.limits.is_empty(), |card| {
-                                card.child(
-                                    label("Account limits unavailable", theme)
-                                        .mt(px(11.))
-                                        .text_size(px(11.)),
-                                )
-                            })
-                            .children(status.limits.iter().take(2).map(|limit| {
+                            .child(
                                 div()
-                                    .mt(px(12.))
+                                    .mt(px(13.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .child(label(
+                                        format!("{} tokens", self.number(totals.tokens.total())),
+                                        theme,
+                                    ))
                                     .child(
                                         div()
-                                            .flex()
-                                            .justify_between()
-                                            .child(
-                                                label(limit.label.clone(), theme)
-                                                    .text_size(px(11.)),
-                                            )
-                                            .child(
-                                                label(
-                                                    if self.config.privacy {
-                                                        "••••".into()
-                                                    } else if limit.expired(Utc::now()) {
-                                                        "Refresh needed".into()
-                                                    } else {
-                                                        format!(
-                                                            "{:.0}% left{}",
-                                                            limit.remaining(),
-                                                            if status.stale {
-                                                                " · cached"
-                                                            } else {
-                                                                ""
-                                                            }
-                                                        )
-                                                    },
-                                                    theme,
-                                                )
-                                                .text_size(px(11.)),
-                                            ),
-                                    )
-                                    .child(
-                                        div()
-                                            .h(px(4.))
-                                            .bg(rgb(theme.line))
-                                            .rounded_full()
-                                            .mt(px(6.))
-                                            .child(
-                                                div()
-                                                    .h_full()
-                                                    .w(relative(
-                                                        if self.config.privacy
-                                                            || limit.expired(Utc::now())
-                                                        {
-                                                            0.0
-                                                        } else {
-                                                            limit.remaining() as f32 / 100.
-                                                        },
-                                                    ))
-                                                    .rounded_full()
-                                                    .bg(rgb(color(status.provider))),
-                                            ),
-                                    )
-                            }))
-                    }),
+                                            .font_family(mono_font())
+                                            .text_size(px(14.))
+                                            .child(self.spend(totals)),
+                                    ),
+                            )
+                            .child(
+                                div().mt(px(15.)).flex().flex_col().gap(px(12.)).children(
+                                    status.limits.iter().take(2).map(|limit| {
+                                        self.quota(limit, status.stale, status.provider)
+                                    }),
+                                ),
+                            )
+                    })),
             )
             .child(
                 div()
+                    .flex_shrink_0()
+                    .p(px(14.))
+                    .border_t_1()
+                    .border_color(rgb(theme.line))
                     .flex()
-                    .gap(px(7.))
+                    .items_center()
+                    .gap(px(8.))
                     .child(
-                        self.button(
-                            "compact-refresh",
-                            "Refresh",
-                            Some("refresh"),
-                            false,
-                            UiAction::Refresh,
-                            cx,
+                        label(
+                            self.data()
+                                .refreshed_at
+                                .map(|at| {
+                                    format!("Updated {}", at.with_timezone(&Local).format("%H:%M"))
+                                })
+                                .unwrap_or_else(|| "Not synced".into()),
+                            theme,
                         )
-                        .flex_1(),
+                        .text_size(px(11.)),
                     )
+                    .child(div().flex_1())
                     .child(self.button(
-                        "compact-privacy",
-                        "Privacy",
-                        Some("privacy"),
-                        self.config.privacy,
-                        UiAction::Privacy,
-                        cx,
-                    ))
-                    .child(self.button(
-                        "compact-theme",
-                        "Theme",
-                        Some("theme"),
-                        self.config.dark,
-                        UiAction::Dark,
+                        "compact-refresh",
+                        "Refresh",
+                        Some("refresh"),
+                        false,
+                        UiAction::Refresh,
                         cx,
                     )),
             )
-            .child(
-                label(
-                    if self.refreshing {
-                        "Refreshing…"
-                    } else {
-                        "Click the tray icon to return here"
-                    },
-                    theme,
-                )
-                .text_size(px(10.)),
-            )
     }
 }
-
+fn plan_name(plan: &str) -> String {
+    plan.split(['_', '-'])
+        .map(|part| {
+            let mut chars = part.chars();
+            chars
+                .next()
+                .map(|first| format!("{}{}", first.to_uppercase(), chars.as_str()))
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
 fn reset_text(at: Option<chrono::DateTime<Utc>>) -> String {
     let Some(at) = at else {
-        return "Reset time not reported".into();
+        return "Reset not reported".into();
     };
-    let delta = at - Utc::now();
-    if delta <= ChronoDuration::zero() {
-        "Window ended · refresh to check".into()
-    } else if delta.num_days() > 0 {
-        format!(
-            "Resets in {}d {}h",
-            delta.num_days(),
-            delta.num_hours() % 24
-        )
-    } else if delta.num_hours() > 0 {
-        format!(
-            "Resets in {}h {}m",
-            delta.num_hours(),
-            delta.num_minutes() % 60
-        )
-    } else {
-        format!("Resets in {}m", delta.num_minutes().max(1))
+    let remaining = at.signed_duration_since(Utc::now());
+    if remaining.num_seconds() <= 0 {
+        return "Window ended · refresh needed".into();
     }
-}
-fn activity_row(
-    time: &str,
-    model: &str,
-    project: &str,
-    tokens: &str,
-    cost: &str,
-    theme: Theme,
-    header: bool,
-) -> Div {
-    div()
-        .flex()
-        .gap(px(18.))
-        .items_center()
-        .px(px(22.))
-        .py(px(if header { 13. } else { 15. }))
-        .border_t_1()
-        .border_color(rgb(theme.line))
-        .bg(rgb(if header { theme.bg } else { theme.panel }))
-        .text_size(px(if header { 10. } else { 11. }))
-        .text_color(rgb(if header { theme.muted } else { theme.ink }))
-        .child(div().w(px(112.)).flex_shrink_0().child(time.to_owned()))
-        .child(div().flex_1().min_w_0().truncate().child(model.to_owned()))
-        .child(div().w(px(115.)).truncate().child(project.to_owned()))
-        .child(
-            div()
-                .w(px(85.))
-                .text_right()
-                .font_family(mono_font())
-                .child(tokens.to_owned()),
+    let minutes = remaining.num_minutes();
+    if minutes < 60 {
+        format!("Resets in {}m", minutes.max(1))
+    } else if minutes < 1440 {
+        format!("Resets in {}h {}m", minutes / 60, minutes % 60)
+    } else {
+        format!(
+            "Resets {}",
+            at.with_timezone(&Local).format("%b %-d, %H:%M")
         )
-        .child(div().w(px(85.)).text_right().child(cost.to_owned()))
-}
-fn record_totals(record: &UsageRecord, config: &Config) -> Totals {
-    Totals {
-        tokens: record.tokens.clone(),
-        estimated: price_for(&record.model, &config.prices)
-            .map(|price| price.cost(&record.tokens))
-            .unwrap_or(0.0),
-        ..Default::default()
     }
 }

@@ -1,6 +1,7 @@
 mod theme;
 mod tray;
 mod views;
+mod window;
 
 use chrono::Utc;
 use gpui::{div, prelude::*, px, rgb, *};
@@ -22,6 +23,7 @@ use theme::*;
 enum Page {
     Overview,
     Activity,
+    Models,
     Limits,
     Connections,
     Settings,
@@ -29,8 +31,9 @@ enum Page {
 impl Page {
     fn title(self) -> &'static str {
         match self {
-            Self::Overview => "Overview",
+            Self::Overview => "Accounts",
             Self::Activity => "Activity",
+            Self::Models => "Models",
             Self::Limits => "Limits",
             Self::Connections => "Connections",
             Self::Settings => "Settings",
@@ -40,6 +43,7 @@ impl Page {
         match self {
             Self::Overview => "overview",
             Self::Activity => "activity",
+            Self::Models => "models",
             Self::Limits => "limits",
             Self::Connections => "connections",
             Self::Settings => "settings",
@@ -51,6 +55,7 @@ enum UiAction {
     Page(Page),
     Period(Period),
     Provider(Option<Provider>),
+    AccountActivity(Provider),
     Refresh,
     Export,
     Online,
@@ -64,10 +69,6 @@ enum UiAction {
     ImportCursor,
     ClearCursor,
     Enable(Provider),
-    ImportPrices,
-    ResetPrices,
-    PriceTemplate,
-    Budget(f64),
     Interval(u64),
     OpenProvider(Provider),
     NextActivity,
@@ -89,6 +90,7 @@ pub struct Dashboard {
     refreshing: bool,
     pending_refresh: bool,
     tray_attempted: bool,
+    tray_error: Option<String>,
     last_minute: Instant,
     receiver: Receiver<Result<Snapshot, String>>,
     sender: Sender<Result<Snapshot, String>>,
@@ -97,6 +99,7 @@ pub struct Dashboard {
     toast: Option<(String, Instant)>,
     tray: Option<tray::Tray>,
     compact: bool,
+    pending_size: Option<Size<Pixels>>,
     activity_page: usize,
     detail: Option<String>,
 }
@@ -116,8 +119,22 @@ impl Dashboard {
         for provider in &mut live.providers {
             provider.stale = true;
         }
+        sync_components(config.dark, window, cx);
         let focus = cx.focus_handle();
         window.focus(&focus);
+        let weak = cx.weak_entity();
+        window.on_window_should_close(cx, move |window, cx| {
+            if weak
+                .update(cx, |view, _| view.tray.is_some())
+                .unwrap_or(false)
+            {
+                window.minimize_window();
+                false
+            } else {
+                cx.quit();
+                true
+            }
+        });
         let mut view = Self {
             config,
             live,
@@ -126,11 +143,12 @@ impl Dashboard {
             page: Page::Overview,
             period: Period::Month,
             provider: None,
-            token_chart: false,
+            token_chart: true,
             hovered_day: None,
             refreshing: false,
             pending_refresh: false,
             tray_attempted: false,
+            tray_error: None,
             last_minute: Instant::now(),
             receiver,
             sender,
@@ -139,6 +157,7 @@ impl Dashboard {
             toast: error.map(|error| (error, Instant::now())),
             tray: None,
             compact: false,
+            pending_size: None,
             activity_page: 0,
             detail: None,
         };
@@ -217,10 +236,24 @@ impl Dashboard {
         cx.notify();
     }
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(size) = self.pending_size.take() {
+            window.resize(size);
+            cx.notify();
+        }
         if !self.tray_attempted {
             self.tray_attempted = true;
-            if let Ok(tray) = tray::create() {
-                self.tray = Some(tray)
+            match tray::create() {
+                Ok(tray) => {
+                    self.tray = Some(tray);
+                    self.update_tray();
+                }
+                Err(error) => {
+                    self.tray_error = Some(error.to_string());
+                    self.message(
+                        "System tray could not be initialized. Close the window to quit.",
+                        cx,
+                    );
+                }
             }
         }
         while let Ok(result) = self.receiver.try_recv() {
@@ -269,9 +302,19 @@ impl Dashboard {
                     None
                 };
                 if let Some(action) = action {
+                    if matches!(action, UiAction::Compact) {
+                        self.compact = false;
+                    }
+                    let show_window = matches!(action, UiAction::Page(_) | UiAction::Compact);
+                    let quit = matches!(action, UiAction::Quit);
                     self.perform(action, window, cx);
-                    window.activate_window();
-                    cx.activate(true);
+                    if quit {
+                        return;
+                    }
+                    if show_window {
+                        window.activate_window();
+                        cx.activate(true);
+                    }
                 }
             }
         }
@@ -285,55 +328,117 @@ impl Dashboard {
                 }
             ) {
                 self.compact = true;
-                window.resize(size(px(460.), px(680.)));
+                self.resize_window(window, size(px(440.), px(700.)));
+                window.focus(&self.focus);
                 window.activate_window();
                 cx.activate(true);
                 cx.notify();
             }
         }
     }
+    fn visible_accounts(&self) -> Vec<&open_usage::model::ProviderStatus> {
+        self.data()
+            .providers
+            .iter()
+            .filter(|status| {
+                self.config.enabled[status.provider.index()]
+                    && (status.connected
+                        || self
+                            .data()
+                            .records
+                            .iter()
+                            .any(|record| record.provider == status.provider))
+            })
+            .collect()
+    }
+    fn resize_window(&mut self, window: &mut Window, size: Size<Pixels>) {
+        self.pending_size = None;
+        if window::restore_before_resize(window) {
+            // Windows restores asynchronously. Resize after its placement has settled.
+            self.pending_size = Some(size);
+        } else {
+            window.resize(size);
+        }
+    }
+    fn spend(&self, totals: &analytics::Totals) -> String {
+        totals
+            .spend()
+            .map(|cost| self.money(cost))
+            .unwrap_or_else(|| "—".into())
+    }
     fn update_tray(&self) {
         if let Some(tray) = &self.tray {
             let analysis =
                 analytics::analyze(self.data(), &self.config, Period::Today, None, Utc::now());
             let mut tooltip = format!(
-                "Open Usage{} · Today {} estimated · {} tokens",
-                if self.demo { " · Example data" } else { "" },
-                self.money(analysis.totals.estimated),
+                "Open Usage{}\n{} tokens today",
+                if self.demo { " · Example" } else { "" },
                 self.number(analysis.totals.tokens.total())
             );
-            for status in &self.data().providers {
+            for status in self.visible_accounts() {
                 if let Some(limit) = status.limits.first() {
-                    tooltip.push_str(&format!(
-                        "\n{}: {}",
-                        status.provider.name(),
-                        if self.config.privacy {
-                            "••••".into()
-                        } else {
-                            format!(
-                                "{:.0}% left{}",
-                                limit.remaining(),
-                                if status.stale { " (cached)" } else { "" }
-                            )
-                        }
-                    ));
+                    let remaining = if self.config.privacy {
+                        "Hidden".into()
+                    } else if limit.expired(Utc::now()) {
+                        "Refresh needed".into()
+                    } else {
+                        format!(
+                            "{:.0}% left{}",
+                            limit.remaining(),
+                            if status.stale { " (cached)" } else { "" }
+                        )
+                    };
+                    tooltip.push_str(&format!("\n{}: {remaining}", status.provider.name()));
                 }
             }
-            let _ = tray.icon.set_tooltip(Some(tooltip));
+            let _ = tray
+                .icon
+                .set_tooltip(Some(tooltip.chars().take(120).collect::<String>()));
             #[cfg(target_os = "macos")]
-            tray.icon
-                .set_title(Some(self.money(analysis.totals.estimated)));
+            {
+                let title = if self.config.privacy {
+                    "Open Usage".into()
+                } else {
+                    self.visible_accounts()
+                        .iter()
+                        .filter_map(|status| {
+                            status
+                                .limits
+                                .first()
+                                .filter(|limit| !limit.expired(Utc::now()))
+                                .map(|limit| {
+                                    format!(
+                                        "{} {:.0}%{}",
+                                        status.provider.name(),
+                                        limit.remaining(),
+                                        if status.stale { "~" } else { "" }
+                                    )
+                                })
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" · ")
+                };
+                tray.icon.set_title(Some(if title.is_empty() {
+                    "Open Usage".into()
+                } else {
+                    title
+                }));
+            }
         }
     }
     fn perform(&mut self, action: UiAction, window: &mut Window, cx: &mut Context<Self>) {
         match action {
             UiAction::Page(page) => {
                 self.page = page;
-                self.detail = None;
-                if self.compact {
-                    self.compact = false;
-                    window.resize(size(px(1340.), px(940.)));
+                if page == Page::Overview {
+                    self.provider = None;
                 }
+                self.detail = None;
+                if self.compact || window.viewport_size().width < px(850.) {
+                    self.compact = false;
+                    self.resize_window(window, size(px(1280.), px(860.)));
+                }
+                window.focus(&self.focus);
             }
             UiAction::Period(period) => {
                 self.period = period;
@@ -346,6 +451,13 @@ impl Dashboard {
                 self.hovered_day = None;
             }
             UiAction::Refresh => self.refresh(cx),
+            UiAction::AccountActivity(provider) => {
+                self.provider = Some(provider);
+                self.page = Page::Activity;
+                self.activity_page = 0;
+                self.detail = None;
+                window.focus(&self.focus);
+            }
             UiAction::Export => {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter("CSV", &["csv"])
@@ -380,6 +492,7 @@ impl Dashboard {
             }
             UiAction::Dark => {
                 self.config.dark = !self.config.dark;
+                sync_components(self.config.dark, window, cx);
                 self.save(cx);
             }
             UiAction::Demo => {
@@ -393,11 +506,13 @@ impl Dashboard {
             }
             UiAction::Compact => {
                 self.compact = !self.compact;
-                window.resize(if self.compact {
-                    size(px(460.), px(680.))
+                let size = if self.compact {
+                    size(px(440.), px(700.))
                 } else {
-                    size(px(1340.), px(940.))
-                });
+                    size(px(1280.), px(860.))
+                };
+                self.resize_window(window, size);
+                window.focus(&self.focus);
             }
             UiAction::Quit => cx.quit(),
             UiAction::Metric(tokens) => {
@@ -443,45 +558,6 @@ impl Dashboard {
                 self.save(cx);
                 self.refresh(cx);
             }
-            UiAction::ImportPrices => {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("Model prices", &["csv"])
-                    .pick_file()
-                {
-                    match open_usage::pricing::import_prices(&path) {
-                        Ok(prices) => {
-                            self.config.prices.extend(prices);
-                            self.save(cx);
-                            self.message("Model prices updated for all history", cx);
-                        }
-                        Err(error) => self.message(error.to_string(), cx),
-                    }
-                }
-            }
-            UiAction::ResetPrices => {
-                self.config.prices.clear();
-                self.save(cx);
-                self.message("Restored baseline model prices", cx);
-            }
-            UiAction::PriceTemplate => {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("CSV", &["csv"])
-                    .set_file_name("model-prices.csv")
-                    .save_file()
-                {
-                    match std::fs::write(
-                        path,
-                        "model,input,output,cache_read,cache_write\ngpt-5.4,2.5,15,0.25,2.5\nclaude-sonnet-4-6,3,15,0.30,3.75\n",
-                    ) {
-                        Ok(_) => self.message("Saved price template · USD per million tokens", cx),
-                        Err(error) => self.message(error.to_string(), cx),
-                    }
-                }
-            }
-            UiAction::Budget(budget) => {
-                self.config.monthly_budget = budget;
-                self.save(cx);
-            }
             UiAction::Interval(seconds) => {
                 self.config.refresh_seconds = seconds;
                 self.save(cx);
@@ -511,40 +587,29 @@ impl Dashboard {
         active: bool,
         action: UiAction,
         cx: &Context<Self>,
-    ) -> Stateful<Div> {
+    ) -> gpui_component::button::Button {
+        use gpui_component::{
+            Sizable,
+            button::{Button, ButtonCustomVariant, ButtonVariants},
+        };
         let theme = self.theme();
-        let key_action = action.clone();
-        div()
-            .id(SharedString::from(id.into()))
-            .focusable()
-            .tab_index(0)
-            .flex()
-            .items_center()
-            .justify_center()
-            .gap(px(7.))
-            .h(px(34.))
-            .px(px(12.))
-            .rounded(px(8.))
-            .border_1()
-            .border_color(rgb(if active { theme.wash } else { theme.line }))
-            .bg(rgb(if active { theme.wash } else { theme.panel }))
-            .text_color(rgb(if active { theme.accent } else { theme.ink }))
-            .text_size(px(12.))
-            .font_weight(FontWeight::MEDIUM)
-            .cursor_pointer()
-            .hover(move |style| style.bg(rgb(theme.wash)))
-            .focus(move |style| style.border_color(rgb(theme.accent)))
-            .when_some(glyph, |button, glyph| button.child(icon(glyph, theme)))
-            .child(text.into())
+        Button::new(SharedString::from(id.into()))
+            .label(text.into())
+            .small()
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .color(rgb(if active { theme.wash } else { theme.panel }).into())
+                    .foreground(rgb(if active { theme.accent } else { theme.ink }).into())
+                    .border(rgb(if active { theme.wash } else { theme.line }).into())
+                    .hover(rgb(theme.wash).into())
+                    .active(rgb(theme.wash).into()),
+            )
+            .when_some(glyph, |button, glyph| {
+                button.icon(gpui_component::Icon::default().path(glyph))
+            })
             .on_click(
                 cx.listener(move |view, _, window, cx| view.perform(action.clone(), window, cx)),
             )
-            .on_key_down(cx.listener(move |view, event: &KeyDownEvent, window, cx| {
-                if event.keystroke.key == "enter" || event.keystroke.key == "space" {
-                    view.perform(key_action.clone(), window, cx);
-                    cx.stop_propagation();
-                }
-            }))
     }
     fn key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
@@ -556,9 +621,10 @@ impl Dashboard {
                 "q" => Some(UiAction::Quit),
                 "1" => Some(UiAction::Page(Page::Overview)),
                 "2" => Some(UiAction::Page(Page::Activity)),
-                "3" => Some(UiAction::Page(Page::Limits)),
-                "4" => Some(UiAction::Page(Page::Connections)),
-                "5" => Some(UiAction::Page(Page::Settings)),
+                "3" => Some(UiAction::Page(Page::Models)),
+                "4" => Some(UiAction::Page(Page::Limits)),
+                "5" => Some(UiAction::Page(Page::Connections)),
+                "6" => Some(UiAction::Page(Page::Settings)),
                 _ => None,
             }
         } else {
@@ -594,6 +660,7 @@ impl Render for Dashboard {
             let page = match self.page {
                 Page::Overview => self.overview(cx),
                 Page::Activity => self.activity(cx),
+                Page::Models => self.models_view(cx),
                 Page::Limits => self.limits_view(cx),
                 Page::Connections => self.connections(cx),
                 Page::Settings => self.settings(cx),
@@ -618,7 +685,7 @@ impl Render for Dashboard {
                                 .flex_1()
                                 .min_h_0()
                                 .overflow_y_scroll()
-                                .p(px(30.))
+                                .p(px(24.))
                                 .child(page),
                         ),
                 )
@@ -632,7 +699,7 @@ impl Render for Dashboard {
             .bg(rgb(theme.bg))
             .text_color(rgb(theme.ink))
             .font_family(body_font())
-            .text_size(px(13.))
+            .text_size(px(14.))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|view, _, window, cx| {

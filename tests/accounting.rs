@@ -3,12 +3,11 @@ use open_usage::{
     analytics::{self, Period},
     config::Config,
     model::*,
-    pricing::{self, Price},
     providers::{history, live},
     store::Store,
 };
 use serde_json::json;
-use std::{collections::BTreeMap, fs};
+use std::fs;
 use tempfile::TempDir;
 
 fn fixture(text: &str, extension: &str) -> (TempDir, std::path::PathBuf) {
@@ -136,7 +135,7 @@ fn cursor_csv_rejects_negative_costs_and_unknown_structure() {
     assert!(history::read_cursor_csv(&path).is_err());
 }
 #[test]
-fn unpriced_models_keep_tokens_without_inventing_cost() {
+fn model_names_never_invent_account_cost() {
     let snapshot = Snapshot {
         records: vec![record("unannounced-model")],
         ..Default::default()
@@ -149,11 +148,18 @@ fn unpriced_models_keep_tokens_without_inventing_cost() {
         Utc::now(),
     );
     assert_eq!(analysis.totals.tokens.total(), 350);
-    assert_eq!(analysis.totals.estimated, 0.0);
-    assert_eq!(analysis.totals.unpriced_rows, 1);
+    assert_eq!(analysis.totals.spend(), None);
+    assert_eq!(
+        analysis
+            .buckets
+            .iter()
+            .map(|bucket| bucket.cost.iter().sum::<f64>())
+            .sum::<f64>(),
+        0.0
+    );
 }
 #[test]
-fn reported_spend_stays_separate_from_api_equivalent_cost() {
+fn account_reported_cost_is_the_only_cost() {
     let mut event = record("gpt-5.4");
     event.reported_cost = Some(3.25);
     let snapshot = Snapshot {
@@ -168,28 +174,32 @@ fn reported_spend_stays_separate_from_api_equivalent_cost() {
         Utc::now(),
     );
     assert_eq!(analysis.totals.reported, 3.25);
-    assert!((analysis.totals.estimated - 0.00105).abs() < 1e-9);
+    assert_eq!(analysis.totals.spend(), Some(3.25));
+    assert_eq!(
+        analysis
+            .buckets
+            .iter()
+            .map(|bucket| bucket.cost.iter().sum::<f64>())
+            .sum::<f64>(),
+        3.25
+    );
 }
 #[test]
-fn overrides_reprice_all_history_and_zero_is_valid() {
-    let mut config = Config::default();
-    config.prices.insert(
-        "custom".into(),
-        Price {
-            input: 0.0,
-            output: 0.0,
-            cache_read: 0.0,
-            cache_write: 0.0,
-        },
-    );
+fn reported_zero_is_distinct_from_missing_cost() {
+    let mut event = record("custom");
+    event.reported_cost = Some(0.0);
     let snapshot = Snapshot {
-        records: vec![record("custom")],
+        records: vec![event],
         ..Default::default()
     };
-    let analysis = analytics::analyze(&snapshot, &config, Period::Today, None, Utc::now());
-    assert_eq!(analysis.totals.unpriced_rows, 0);
-    assert_eq!(analysis.totals.estimated, 0.0);
-    assert!(pricing::price_for("gpt-6.1-sol", &BTreeMap::new()).is_some());
+    let analysis = analytics::analyze(
+        &snapshot,
+        &Config::default(),
+        Period::Today,
+        None,
+        Utc::now(),
+    );
+    assert_eq!(analysis.totals.spend(), Some(0.0));
 }
 #[test]
 fn provider_and_time_filters_apply_to_every_total() {
@@ -287,7 +297,7 @@ fn sqlite_roundtrip_and_file_cache_invalidate_on_change() {
     assert!(!String::from_utf8_lossy(&stored).contains("access_token"));
 }
 #[test]
-fn export_respects_filters_and_leaves_unknown_prices_blank() {
+fn export_respects_account_filters_and_leaves_missing_cost_blank() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("export.csv");
     let snapshot = Snapshot {
@@ -304,18 +314,87 @@ fn export_respects_filters_and_leaves_unknown_prices_blank() {
     .unwrap();
     assert_eq!(count, 1);
     let mut csv = csv::Reader::from_path(path).unwrap();
+    assert_eq!(&csv.headers().unwrap()[1], "account");
+    assert!(
+        !csv.headers()
+            .unwrap()
+            .iter()
+            .any(|header| header.contains("estimated"))
+    );
     let row = csv.records().next().unwrap().unwrap();
     assert_eq!(&row[9], "");
-    assert_eq!(&row[10], "");
 }
 #[test]
-fn custom_prices_reject_nan_and_apply_default_cache_rates() {
-    let (_dir, path) = fixture(
-        "model,input,output,cache_read,cache_write\ncustom,2,10,,\n",
-        "csv",
+fn claude_models_used_in_cursor_belong_only_to_cursor() {
+    let mut cursor = record("claude-sonnet-4-6");
+    cursor.provider = Provider::Cursor;
+    cursor.reported_cost = Some(1.25);
+    let mut claude = record("claude-sonnet-4-6");
+    claude.provider = Provider::Claude;
+    let snapshot = Snapshot {
+        records: vec![cursor, claude],
+        ..Default::default()
+    };
+    let analysis = analytics::analyze(
+        &snapshot,
+        &Config::default(),
+        Period::Today,
+        None,
+        Utc::now(),
     );
-    let prices = pricing::import_prices(&path).unwrap();
-    assert_eq!(prices["custom"].cache_read, 2.0);
-    fs::write(&path, "model,input,output\ncustom,NaN,10\n").unwrap();
-    assert!(pricing::import_prices(&path).is_err());
+    assert_eq!(
+        analysis.providers[Provider::Cursor.index()].spend(),
+        Some(1.25)
+    );
+    assert_eq!(analysis.providers[Provider::Claude.index()].spend(), None);
+    assert_eq!(analysis.models.len(), 2);
+    let cursor_only = analytics::analyze(
+        &snapshot,
+        &Config::default(),
+        Period::Today,
+        Some(Provider::Cursor),
+        Utc::now(),
+    );
+    assert_eq!(cursor_only.models.len(), 1);
+    assert_eq!(cursor_only.models[0].provider, Provider::Cursor);
+    assert_eq!(cursor_only.totals.tokens.total(), 350);
+}
+
+#[test]
+fn invalid_reported_costs_do_not_pollute_totals() {
+    let mut invalid = record("unknown");
+    invalid.reported_cost = Some(f64::NAN);
+    let mut negative = record("another");
+    negative.reported_cost = Some(-2.0);
+    let snapshot = Snapshot {
+        records: vec![invalid, negative],
+        ..Default::default()
+    };
+    let analysis = analytics::analyze(
+        &snapshot,
+        &Config::default(),
+        Period::Today,
+        None,
+        Utc::now(),
+    );
+    assert_eq!(analysis.totals.spend(), None);
+    assert_eq!(analysis.totals.tokens.total(), 700);
+}
+
+#[test]
+fn legacy_price_overrides_cannot_create_account_cost() {
+    let config: Config = serde_json::from_value(json!({"prices":{"custom":{"input":999,"output":999,"cache_read":999,"cache_write":999}},"monthly_budget":100})).unwrap();
+    let snapshot = Snapshot {
+        records: vec![record("custom")],
+        ..Default::default()
+    };
+    let analysis = analytics::analyze(&snapshot, &config, Period::Today, None, Utc::now());
+    assert_eq!(analysis.totals.spend(), None);
+    assert_eq!(analysis.totals.tokens.total(), 350);
+    assert!(
+        serde_json::to_value(config)
+            .unwrap()
+            .get("prices")
+            .is_none()
+    );
 }

@@ -1,7 +1,6 @@
 use crate::{
     config::Config,
     model::{Provider, Snapshot, Tokens, UsageRecord},
-    pricing::price_for,
 };
 use anyhow::Result;
 use chrono::{DateTime, Duration, Local, NaiveDate, TimeZone, Utc};
@@ -48,13 +47,24 @@ impl Period {
 #[derive(Debug, Clone, Default)]
 pub struct Totals {
     pub tokens: Tokens,
-    pub estimated: f64,
     pub reported: f64,
     pub reported_rows: usize,
-    pub unpriced_rows: usize,
-    pub cache_savings: f64,
     pub events: usize,
     pub sessions: usize,
+}
+impl Totals {
+    /// None means the account did not report cost, rather than zero spend.
+    pub fn spend(&self) -> Option<f64> {
+        (self.reported_rows > 0).then_some(self.reported)
+    }
+    pub fn cache_percent(&self) -> f64 {
+        let total = self.tokens.total();
+        if total == 0 {
+            0.0
+        } else {
+            self.tokens.cache_read as f64 / total as f64 * 100.0
+        }
+    }
 }
 #[derive(Debug, Clone)]
 pub struct ModelRow {
@@ -74,7 +84,6 @@ pub struct Analysis {
     pub providers: [Totals; 3],
     pub models: Vec<ModelRow>,
     pub buckets: Vec<Bucket>,
-    pub previous_estimated: f64,
 }
 pub fn matches(
     record: &UsageRecord,
@@ -86,16 +95,13 @@ pub fn matches(
         && record.timestamp <= now
         && provider.is_none_or(|p| p == record.provider)
 }
-fn add(totals: &mut Totals, record: &UsageRecord, config: &Config) {
+fn add(totals: &mut Totals, record: &UsageRecord) {
     totals.tokens.add(&record.tokens);
     totals.events += 1;
-    if let Some(price) = price_for(&record.model, &config.prices) {
-        totals.estimated += price.cost(&record.tokens);
-        totals.cache_savings += price.cache_savings(&record.tokens);
-    } else if record.tokens.total() > 0 {
-        totals.unpriced_rows += 1;
-    }
-    if let Some(cost) = record.reported_cost {
+    if let Some(cost) = record
+        .reported_cost
+        .filter(|cost| cost.is_finite() && *cost >= 0.0)
+    {
         totals.reported += cost;
         totals.reported_rows += 1;
     }
@@ -108,8 +114,6 @@ pub fn analyze(
     now: DateTime<Utc>,
 ) -> Analysis {
     let first = period.start(now).with_timezone(&Local).date_naive();
-    let start = period.start(now);
-    let previous = start - Duration::days(period.days());
     let mut analysis = Analysis {
         totals: Totals::default(),
         providers: Default::default(),
@@ -121,7 +125,6 @@ pub fn analyze(
                 tokens: [0; 3],
             })
             .collect(),
-        previous_estimated: 0.0,
     };
     let mut models: BTreeMap<(Provider, String), Totals> = BTreeMap::new();
     let mut sessions = BTreeSet::new();
@@ -131,27 +134,16 @@ pub fn analyze(
         {
             continue;
         }
-        if record.timestamp >= previous
-            && record.timestamp < start
-            && let Some(price) = price_for(&record.model, &config.prices)
-        {
-            analysis.previous_estimated += price.cost(&record.tokens);
-        }
         if !matches(record, period, provider, now) {
             continue;
         }
-        add(&mut analysis.totals, record, config);
-        add(
-            &mut analysis.providers[record.provider.index()],
-            record,
-            config,
-        );
+        add(&mut analysis.totals, record);
+        add(&mut analysis.providers[record.provider.index()], record);
         add(
             models
                 .entry((record.provider, record.model.clone()))
                 .or_default(),
             record,
-            config,
         );
         if !record.session.is_empty() {
             sessions.insert((record.provider, record.session.clone()));
@@ -161,9 +153,13 @@ pub fn analyze(
             .ok()
             .and_then(|day| analysis.buckets.get_mut(day))
         {
-            bucket.tokens[record.provider.index()] += record.tokens.total();
-            if let Some(price) = price_for(&record.model, &config.prices) {
-                bucket.cost[record.provider.index()] += price.cost(&record.tokens);
+            bucket.tokens[record.provider.index()] =
+                bucket.tokens[record.provider.index()].saturating_add(record.tokens.total());
+            if let Some(cost) = record
+                .reported_cost
+                .filter(|cost| cost.is_finite() && *cost >= 0.0)
+            {
+                bucket.cost[record.provider.index()] += cost;
             }
         }
     }
@@ -181,7 +177,7 @@ pub fn analyze(
         .collect();
     analysis
         .models
-        .sort_by(|a, b| b.totals.estimated.total_cmp(&a.totals.estimated));
+        .sort_by_key(|row| std::cmp::Reverse(row.totals.tokens.total()));
     analysis
 }
 pub fn export_csv(
@@ -194,7 +190,7 @@ pub fn export_csv(
     let mut writer = csv::Writer::from_path(path)?;
     writer.write_record([
         "timestamp",
-        "provider",
+        "account",
         "model",
         "project",
         "session",
@@ -202,7 +198,6 @@ pub fn export_csv(
         "output_tokens",
         "cache_read_tokens",
         "cache_write_tokens",
-        "estimated_usd",
         "reported_usd",
     ])?;
     let mut count = 0;
@@ -222,11 +217,9 @@ pub fn export_csv(
             record.tokens.output.to_string(),
             record.tokens.cache_read.to_string(),
             record.tokens.cache_write.to_string(),
-            price_for(&record.model, &config.prices)
-                .map(|p| format!("{:.6}", p.cost(&record.tokens)))
-                .unwrap_or_default(),
             record
                 .reported_cost
+                .filter(|cost| cost.is_finite() && *cost >= 0.0)
                 .map(|p| format!("{p:.6}"))
                 .unwrap_or_default(),
         ])?;

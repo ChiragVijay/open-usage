@@ -12,8 +12,8 @@ pub struct Tray {
 }
 pub fn create() -> anyhow::Result<Tray> {
     let menu = Menu::new();
-    let overview = MenuItem::new("Open dashboard", true, None);
-    let compact = MenuItem::new("Quick glance", true, None);
+    let overview = MenuItem::new("Open accounts", true, None);
+    let compact = MenuItem::new("Quick view", true, None);
     let refresh = MenuItem::new("Refresh usage", true, None);
     let quit = MenuItem::new("Quit Open Usage", true, None);
     menu.append_items(&[
@@ -31,9 +31,9 @@ pub fn create() -> anyhow::Result<Tray> {
                 || ((21..26).contains(&x) && (13..27).contains(&y));
             if active {
                 let i = (y * 32 + x) * 4;
-                pixels[i] = 137;
-                pixels[i + 1] = 117;
-                pixels[i + 2] = 213;
+                pixels[i] = 77;
+                pixels[i + 1] = 130;
+                pixels[i + 2] = 222;
                 pixels[i + 3] = 255;
             }
         }

@@ -10,6 +10,7 @@ fn main() {
     Application::new()
         .with_assets(ui::assets())
         .run(move |cx: &mut App| {
+            gpui_component::init(cx);
             cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
             cx.bind_keys([gpui::KeyBinding::new("secondary-q", Quit, None)]);
             #[cfg(target_os = "macos")]
@@ -17,7 +18,7 @@ fn main() {
                 name: "Open Usage".into(),
                 items: vec![gpui::MenuItem::action("Quit Open Usage", Quit)],
             }]);
-            let bounds = Bounds::centered(None, size(px(1340.), px(940.)), cx);
+            let bounds = Bounds::centered(None, size(px(1280.), px(860.)), cx);
             let result = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -29,11 +30,8 @@ fn main() {
                     ..Default::default()
                 },
                 move |window, cx| {
-                    window.on_window_should_close(cx, |window, _| {
-                        window.minimize_window();
-                        false
-                    });
-                    cx.new(|cx| ui::Dashboard::new(window, cx, demo))
+                    let dashboard = cx.new(|cx| ui::Dashboard::new(window, cx, demo));
+                    cx.new(|cx| gpui_component::Root::new(dashboard, window, cx))
                 },
             );
             if result.is_err() {

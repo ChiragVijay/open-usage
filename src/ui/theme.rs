@@ -16,44 +16,44 @@ impl Theme {
     pub fn new(dark: bool) -> Self {
         if dark {
             Self {
-                bg: 0x141824,
-                panel: 0x1c2231,
-                sidebar: 0x181d2a,
-                ink: 0xe9edf8,
-                muted: 0x9aa6bf,
-                line: 0x30394d,
-                wash: 0x252d43,
-                accent: 0xab9eff,
+                bg: 0x10151c,
+                panel: 0x171f28,
+                sidebar: 0x121921,
+                ink: 0xe6edf3,
+                muted: 0x9ba8b6,
+                line: 0x2c3745,
+                wash: 0x202e42,
+                accent: 0x83aaff,
             }
         } else {
             Self {
-                bg: 0xf6f7fb,
+                bg: 0xf5f6f8,
                 panel: 0xffffff,
-                sidebar: 0xfafaff,
-                ink: 0x222941,
-                muted: 0x71798f,
-                line: 0xe9ecf3,
-                wash: 0xeeedf9,
-                accent: 0x7666cb,
+                sidebar: 0xffffff,
+                ink: 0x18202b,
+                muted: 0x5e6a78,
+                line: 0xdde3ea,
+                wash: 0xeaf0fa,
+                accent: 0x2864d8,
             }
         }
     }
 }
 pub fn color(provider: Provider) -> u32 {
     match provider {
-        Provider::Codex => 0x33958a,
-        Provider::Claude => 0xd18d68,
-        Provider::Cursor => 0x8975d5,
+        Provider::Codex => 0x328c80,
+        Provider::Claude => 0xb77350,
+        Provider::Cursor => 0x607bb4,
     }
 }
 pub fn tint(provider: Provider, dark: bool) -> u32 {
     if dark {
-        0x293044
+        0x202d3c
     } else {
         match provider {
-            Provider::Codex => 0xe9f5f2,
-            Provider::Claude => 0xfaf0e9,
-            Provider::Cursor => 0xf0ecfb,
+            Provider::Codex => 0xebf4f2,
+            Provider::Claude => 0xf7f0eb,
+            Provider::Cursor => 0xeef2f8,
         }
     }
 }
@@ -78,15 +78,33 @@ pub fn mono_font() -> &'static str {
         "Menlo"
     }
 }
+pub fn sync_components(dark: bool, window: &mut gpui::Window, cx: &mut gpui::App) {
+    gpui_component::Theme::change(
+        if dark {
+            gpui_component::ThemeMode::Dark
+        } else {
+            gpui_component::ThemeMode::Light
+        },
+        Some(window),
+        cx,
+    );
+    let theme = gpui_component::Theme::global_mut(cx);
+    theme.font_family = body_font().into();
+    theme.font_size = px(14.);
+    theme.mono_font_family = mono_font().into();
+    theme.radius = px(6.);
+    theme.radius_lg = px(8.);
+    theme.shadow = false;
+}
 pub fn label(text: impl Into<SharedString>, theme: Theme) -> Div {
     div()
-        .text_size(px(12.))
+        .text_size(px(13.))
         .text_color(rgb(theme.muted))
         .child(text.into())
 }
 pub fn title(text: impl Into<SharedString>, theme: Theme) -> Div {
     div()
-        .text_size(px(16.))
+        .text_size(px(15.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgb(theme.ink))
         .child(text.into())
@@ -96,8 +114,8 @@ pub fn panel(theme: Theme) -> Div {
         .bg(rgb(theme.panel))
         .border_1()
         .border_color(rgb(theme.line))
-        .rounded(px(16.))
-        .p(px(22.))
+        .rounded(px(8.))
+        .p(px(20.))
 }
 pub fn dot(provider: Provider) -> Div {
     div()
@@ -114,8 +132,8 @@ pub fn icon(name: &'static str, theme: Theme) -> Svg {
 }
 pub fn provider_mark(provider: Provider, dark: bool) -> Div {
     div()
-        .size(px(38.))
-        .rounded(px(11.))
+        .size(px(36.))
+        .rounded(px(8.))
         .bg(rgb(tint(provider, dark)))
         .flex()
         .items_center()
@@ -136,6 +154,7 @@ impl gpui::AssetSource for Assets {
                 "<rect x='3' y='3' width='7' height='7' rx='1.5'/><rect x='14' y='3' width='7' height='7' rx='1.5'/><rect x='3' y='14' width='7' height='7' rx='1.5'/><rect x='14' y='14' width='7' height='7' rx='1.5'/>"
             }
             "activity" => "<path d='M3 12h4l3-7 4 14 3-7h4'/>",
+            "models" => "<path d='m12 3 9 5-9 5-9-5zM3 12l9 5 9-5M3 16l9 5 9-5'/>",
             "limits" => "<circle cx='12' cy='12' r='9'/><path d='M12 7v5l4 2'/>",
             "connections" => "<path d='M8 3v5m8-5v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4'/>",
             "settings" => {

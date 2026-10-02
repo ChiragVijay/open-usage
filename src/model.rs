@@ -25,6 +25,13 @@ impl Provider {
             Self::Cursor => "cursor",
         }
     }
+    pub fn account_name(self) -> &'static str {
+        match self {
+            Self::Codex => "ChatGPT / Codex",
+            Self::Claude => "Claude Code",
+            Self::Cursor => "Cursor",
+        }
+    }
     pub fn index(self) -> usize {
         match self {
             Self::Codex => 0,
@@ -66,7 +73,7 @@ pub struct UsageRecord {
     pub session: String,
     pub project: String,
     pub tokens: Tokens,
-    /// Account-reported cost, independent of API-equivalent estimates.
+    /// Usage cost reported by this account's provider. Never inferred from a model price.
     pub reported_cost: Option<f64>,
     pub source: String,
 }

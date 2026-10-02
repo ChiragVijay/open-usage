@@ -156,6 +156,20 @@ pub fn collect(config: &Config, previous: &Snapshot) -> Result<Snapshot> {
                 provider.name()
             ));
         }
+        // Pausing checks must not erase previously fetched account history.
+        if provider == Provider::Cursor && !config.online && config.cursor_imports.is_empty() {
+            for record in previous
+                .records
+                .iter()
+                .filter(|record| record.provider == provider)
+            {
+                records.insert(record.id.clone(), record.clone());
+                status.connected = true;
+            }
+            if status.connected {
+                status.detail = "Cached Cursor account history".into();
+            }
+        }
         if config.online {
             match live::fetch(provider, &directories) {
                 Ok(data) => {
