@@ -633,6 +633,14 @@ impl Render for Dashboard {
             .text_color(rgb(theme.ink))
             .font_family(body_font())
             .text_size(px(13.))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|view, _, window, cx| {
+                    if !view.focus.contains_focused(window, cx) {
+                        window.focus(&view.focus);
+                    }
+                }),
+            )
             .on_key_down(cx.listener(Self::key))
             .child(content)
             .when_some(self.toast.as_ref(), |root, (message, _)| {

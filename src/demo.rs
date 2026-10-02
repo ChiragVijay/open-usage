@@ -47,6 +47,7 @@ pub fn snapshot() -> Snapshot {
             }
         }
     }
+    records.sort_by_key(|record| std::cmp::Reverse(record.timestamp));
     let providers = Provider::ALL
         .into_iter()
         .map(|provider| ProviderStatus {

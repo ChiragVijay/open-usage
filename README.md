@@ -2,6 +2,8 @@
 
 A native Rust + GPUI dashboard for Codex / ChatGPT, Claude Code, and Cursor. See token history, estimated API-equivalent cost, cache savings, model breakdowns, and subscription allowances in one workspace. Windows and macOS share the same application code.
 
+![Open Usage dashboard with clearly labeled example data](docs/images/dashboard.jpg)
+
 ## Run
 
 Install Rust **1.97.1** (or use `mise install`), then:
@@ -88,7 +90,7 @@ cargo run --bin package
 
 Packaging builds the release desktop app and CLI on the current host. Windows produces `dist/Open Usage-windows/`; macOS produces `dist/Open Usage.app` and `dist/usage`. These are local development builds; macOS signing and notarization are not configured. Packaging has no CI or GitHub Actions dependency.
 
-Windows compilation, accounting tests, CLI reads of real local Codex history, and native UI rendering have been verified. macOS source paths and bundling are implemented, but execution and Keychain prompts still need verification on a Mac. Account endpoints are provider-specific and can change; the app presents failures rather than silently fabricating usage.
+Windows release packaging, accounting tests, real local Codex history, live Codex allowances, live Cursor allowances/history, and native UI rendering have been verified. Claude parsers and quota schemas are covered by fixtures; a signed-in Claude account was not available for live verification. macOS source paths and bundling are implemented, but execution and Keychain prompts still need verification on a Mac. Account endpoints are provider-specific and can change; the app presents failures rather than silently fabricating usage.
 
 ## Code layout
 
