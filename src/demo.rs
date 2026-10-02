@@ -100,6 +100,8 @@ pub fn snapshot() -> Snapshot {
                     checked_at: Some(now),
                     stale: false,
                     connected: true,
+                    detected: true,
+                    installations: vec![],
                     sources: 1,
                 }
             }

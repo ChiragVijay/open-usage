@@ -202,7 +202,10 @@ pub fn read_jsonl(path: &Path, provider: Provider) -> Result<Parsed> {
                 cache_read: uint(&usage["cache_read_input_tokens"]),
                 cache_write: uint(&usage["cache_creation_input_tokens"]),
             };
-            if tokens.total() == 0 {
+            let reported_cost = value["costUSD"]
+                .as_f64()
+                .filter(|cost| cost.is_finite() && *cost >= 0.0);
+            if tokens.total() == 0 && reported_cost.is_none() {
                 continue;
             }
             // Streaming content blocks repeat the same message. Keep the fullest usage.
@@ -227,7 +230,7 @@ pub fn read_jsonl(path: &Path, provider: Provider) -> Result<Parsed> {
                     session: session_id.into(),
                     project: project(text(&value, "cwd")),
                     tokens,
-                    reported_cost: None,
+                    reported_cost,
                     source: path.to_string_lossy().into_owned(),
                 },
             );

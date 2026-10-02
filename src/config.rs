@@ -16,7 +16,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            online: false,
+            online: true,
             enabled: [true; 3],
             dark: false,
             privacy: false,

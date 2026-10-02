@@ -3,7 +3,7 @@ use crate::{
     model::{Provider, Snapshot, Tokens, UsageRecord},
 };
 use anyhow::Result;
-use chrono::{DateTime, Duration, Local, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, Duration, Local, TimeZone, Utc};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
@@ -12,15 +12,33 @@ use std::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Period {
     Today,
+    TwoHours,
+    Day,
     Week,
     Month,
     Quarter,
 }
 impl Period {
-    pub const ALL: [Self; 4] = [Self::Today, Self::Week, Self::Month, Self::Quarter];
+    pub const ALL: [Self; 5] = [
+        Self::TwoHours,
+        Self::Day,
+        Self::Week,
+        Self::Month,
+        Self::Quarter,
+    ];
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Today => "today",
+            Self::TwoHours => "2h",
+            Self::Day => "24h",
+            Self::Week => "7d",
+            Self::Month => "30d",
+            Self::Quarter => "90d",
+        }
+    }
     pub fn days(self) -> i64 {
         match self {
-            Self::Today => 1,
+            Self::Today | Self::TwoHours | Self::Day => 1,
             Self::Week => 7,
             Self::Month => 30,
             Self::Quarter => 90,
@@ -29,18 +47,51 @@ impl Period {
     pub fn label(self) -> &'static str {
         match self {
             Self::Today => "Today",
+            Self::TwoHours => "Last 2 hours",
+            Self::Day => "Last 24 hours",
             Self::Week => "7 days",
             Self::Month => "30 days",
             Self::Quarter => "90 days",
         }
     }
     pub fn start(self, now: DateTime<Utc>) -> DateTime<Utc> {
-        let date = now.with_timezone(&Local).date_naive() - Duration::days(self.days() - 1);
+        if self != Self::Today {
+            return now
+                - match self {
+                    Self::TwoHours => Duration::hours(2),
+                    Self::Day => Duration::hours(24),
+                    _ => Duration::days(self.days()),
+                };
+        }
+        let date = now.with_timezone(&Local).date_naive();
         Local
             .from_local_datetime(&date.and_hms_opt(0, 0, 0).unwrap())
             .earliest()
             .unwrap_or_else(|| now.with_timezone(&Local))
             .with_timezone(&Utc)
+    }
+    pub fn bucket_seconds(self) -> i64 {
+        match self {
+            Self::TwoHours => 300,
+            Self::Today | Self::Day => 3600,
+            _ => 86400,
+        }
+    }
+    pub fn chart_title(self) -> &'static str {
+        match self {
+            Self::TwoHours => "Usage · 5-minute intervals",
+            Self::Today | Self::Day => "Usage · hourly",
+            _ => "Usage · daily",
+        }
+    }
+    pub fn bucket_label(self, at: DateTime<Utc>) -> String {
+        at.with_timezone(&Local)
+            .format(if self.bucket_seconds() < 86400 {
+                "%H:%M"
+            } else {
+                "%b %-d"
+            })
+            .to_string()
     }
 }
 
@@ -74,8 +125,10 @@ pub struct ModelRow {
 }
 #[derive(Debug, Clone)]
 pub struct Bucket {
-    pub date: NaiveDate,
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
     pub cost: [f64; 3],
+    pub cost_rows: [usize; 3],
     pub tokens: [u64; 3],
 }
 #[derive(Debug, Clone)]
@@ -113,15 +166,19 @@ pub fn analyze(
     provider: Option<Provider>,
     now: DateTime<Utc>,
 ) -> Analysis {
-    let first = period.start(now).with_timezone(&Local).date_naive();
+    let first = period.start(now);
+    let interval = period.bucket_seconds();
+    let bucket_count = ((now - first).num_seconds().max(1) + interval - 1) / interval;
     let mut analysis = Analysis {
         totals: Totals::default(),
         providers: Default::default(),
         models: vec![],
-        buckets: (0..period.days())
+        buckets: (0..bucket_count)
             .map(|d| Bucket {
-                date: first + Duration::days(d),
+                start: first + Duration::seconds(d * interval),
+                end: (first + Duration::seconds((d + 1) * interval)).min(now),
                 cost: [0.0; 3],
+                cost_rows: [0; 3],
                 tokens: [0; 3],
             })
             .collect(),
@@ -148,10 +205,10 @@ pub fn analyze(
         if !record.session.is_empty() {
             sessions.insert((record.provider, record.session.clone()));
         }
-        let day = (record.timestamp.with_timezone(&Local).date_naive() - first).num_days();
-        if let Some(bucket) = usize::try_from(day)
+        let index = ((record.timestamp - first).num_seconds() / interval).min(bucket_count - 1);
+        if let Some(bucket) = usize::try_from(index)
             .ok()
-            .and_then(|day| analysis.buckets.get_mut(day))
+            .and_then(|index| analysis.buckets.get_mut(index))
         {
             bucket.tokens[record.provider.index()] =
                 bucket.tokens[record.provider.index()].saturating_add(record.tokens.total());
@@ -160,6 +217,7 @@ pub fn analyze(
                 .filter(|cost| cost.is_finite() && *cost >= 0.0)
             {
                 bucket.cost[record.provider.index()] += cost;
+                bucket.cost_rows[record.provider.index()] += 1;
             }
         }
     }

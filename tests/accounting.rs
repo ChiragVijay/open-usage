@@ -398,3 +398,201 @@ fn legacy_price_overrides_cannot_create_account_cost() {
             .is_none()
     );
 }
+
+#[test]
+fn rolling_ranges_filter_exact_boundaries_and_reconcile_chart_buckets() {
+    let now = history::date("2026-10-02T18:23:17Z").unwrap();
+    for (period, count) in [
+        (Period::TwoHours, 24),
+        (Period::Day, 24),
+        (Period::Week, 7),
+        (Period::Month, 30),
+        (Period::Quarter, 90),
+    ] {
+        let start = period.start(now);
+        let records = [
+            start - Duration::nanoseconds(1),
+            start,
+            start + Duration::seconds(period.bucket_seconds()),
+            now,
+            now + Duration::nanoseconds(1),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, timestamp)| {
+            let mut event = record("unpriced-model");
+            event.id = index.to_string();
+            event.timestamp = timestamp;
+            event.reported_cost = Some(0.25);
+            event
+        })
+        .collect();
+        let analysis = analytics::analyze(
+            &Snapshot {
+                records,
+                ..Default::default()
+            },
+            &Config::default(),
+            period,
+            None,
+            now,
+        );
+        assert_eq!(analysis.totals.events, 3, "{}", period.key());
+        assert_eq!(analysis.totals.spend(), Some(0.75));
+        assert_eq!(analysis.buckets.len(), count);
+        assert_eq!(analysis.buckets.first().unwrap().start, start);
+        assert_eq!(analysis.buckets.last().unwrap().end, now);
+        assert_eq!(
+            analysis
+                .buckets
+                .iter()
+                .map(|bucket| bucket.tokens.iter().sum::<u64>())
+                .sum::<u64>(),
+            analysis.totals.tokens.total()
+        );
+        assert_eq!(
+            analysis
+                .buckets
+                .iter()
+                .map(|bucket| bucket.cost_rows.iter().sum::<usize>())
+                .sum::<usize>(),
+            3
+        );
+        assert_eq!(
+            analysis
+                .buckets
+                .iter()
+                .map(|bucket| bucket.cost.iter().sum::<f64>())
+                .sum::<f64>(),
+            0.75
+        );
+        for pair in analysis.buckets.windows(2) {
+            assert_eq!(pair[0].end, pair[1].start);
+        }
+    }
+}
+
+#[test]
+fn short_ranges_preserve_elapsed_time_across_daylight_saving_changes() {
+    for stamp in ["2026-03-08T09:30:00Z", "2026-11-01T08:30:00Z"] {
+        let now = history::date(stamp).unwrap();
+        assert_eq!((now - Period::TwoHours.start(now)).num_seconds(), 7200);
+        assert_eq!((now - Period::Day.start(now)).num_seconds(), 86400);
+        let analysis = analytics::analyze(
+            &Snapshot::default(),
+            &Config::default(),
+            Period::Day,
+            None,
+            now,
+        );
+        assert_eq!(analysis.buckets.len(), 24);
+        assert!(
+            analysis
+                .buckets
+                .iter()
+                .all(|bucket| (bucket.end - bucket.start).num_seconds() == 3600)
+        );
+    }
+}
+
+#[test]
+fn claude_recorded_cost_is_read_without_model_prices_and_streaming_is_deduplicated() {
+    let line = |out, cost| {
+        json!({"type":"assistant","sessionId":"one","requestId":"request","timestamp":"2026-10-02T13:00:00Z","costUSD":cost,"message":{"id":"message","model":"unannounced-model","usage":{"input_tokens":100,"output_tokens":out}}}).to_string()
+    };
+    let (_dir, path) = fixture(
+        &[line(10, 0.15), line(30, 0.35), line(30, 0.35)].join("\n"),
+        "jsonl",
+    );
+    let parsed = history::read_jsonl(&path, Provider::Claude).unwrap();
+    assert_eq!(parsed.records.len(), 1);
+    assert_eq!(parsed.records[0].reported_cost, Some(0.35));
+    assert_eq!(parsed.records[0].tokens.total(), 130);
+    fs::write(&path, line(30, -1.0)).unwrap();
+    assert_eq!(
+        history::read_jsonl(&path, Provider::Claude)
+            .unwrap()
+            .records[0]
+            .reported_cost,
+        None
+    );
+}
+
+#[test]
+fn parser_upgrade_invalidates_normalized_files_and_preserves_account_history() {
+    let dir = TempDir::new().unwrap();
+    let database = dir.path().join("usage.db");
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    connection.execute_batch("CREATE TABLE files(path TEXT PRIMARY KEY,size INTEGER,modified INTEGER,records TEXT); CREATE TABLE snapshot(id INTEGER PRIMARY KEY,json TEXT); INSERT INTO files VALUES('old',1,1,'[]');").unwrap();
+    let snapshot = Snapshot {
+        records: vec![record("unknown")],
+        ..Default::default()
+    };
+    connection
+        .execute(
+            "INSERT INTO snapshot VALUES(1,?1)",
+            [serde_json::to_string(&snapshot).unwrap()],
+        )
+        .unwrap();
+    drop(connection);
+    let store = Store::at(&database).unwrap();
+    assert!(
+        store
+            .cached(std::path::Path::new("old"), 1, 1)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(store.load().unwrap().unwrap().records.len(), 1);
+}
+
+#[test]
+fn agent_discovery_uses_installation_evidence_and_never_fabricates_accounts() {
+    use open_usage::providers::discovery::{self, Environment};
+    let dir = TempDir::new().unwrap();
+    let env = Environment {
+        home: dir.path().join("home"),
+        path: vec![dir.path().join("bin")],
+        local_data: dir.path().join("local"),
+        program_dirs: vec![],
+        applications: vec![dir.path().join("Applications")],
+    };
+    for provider in Provider::ALL {
+        assert!(discovery::detect(provider, &[], &env).is_empty());
+    }
+    fs::create_dir_all(&env.path[0]).unwrap();
+    fs::write(
+        env.path[0].join(if cfg!(windows) { "codex.cmd" } else { "codex" }),
+        "",
+    )
+    .unwrap();
+    assert_eq!(discovery::detect(Provider::Codex, &[], &env).len(), 1);
+    assert!(discovery::detect(Provider::Claude, &[], &env).is_empty());
+    // An unrelated generic agent command is not enough to claim Cursor is installed.
+    fs::write(
+        env.path[0].join(if cfg!(windows) { "agent.exe" } else { "agent" }),
+        "",
+    )
+    .unwrap();
+    assert!(discovery::detect(Provider::Cursor, &[], &env).is_empty());
+    fs::create_dir_all(env.applications[0].join("Cursor.app")).unwrap();
+    assert_eq!(discovery::detect(Provider::Cursor, &[], &env).len(), 1);
+    let custom = dir.path().join("custom-claude");
+    fs::create_dir_all(&custom).unwrap();
+    fs::write(
+        custom.join(".credentials.json"),
+        "contents are not read by discovery",
+    )
+    .unwrap();
+    assert_eq!(
+        discovery::detect(Provider::Claude, std::slice::from_ref(&custom), &env),
+        vec![custom.to_string_lossy().into_owned()]
+    );
+}
+
+#[test]
+fn legacy_cached_status_does_not_claim_an_installation() {
+    let old = json!({"provider":"claude","detail":"No source","plan":null,"limits":[],"checked_at":null,"stale":true,"connected":false,"sources":0});
+    let status: ProviderStatus = serde_json::from_value(old).unwrap();
+    assert!(!status.detected);
+    assert!(status.installations.is_empty());
+}

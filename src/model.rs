@@ -103,6 +103,10 @@ pub struct ProviderStatus {
     pub checked_at: Option<DateTime<Utc>>,
     pub stale: bool,
     pub connected: bool,
+    #[serde(default)]
+    pub detected: bool,
+    #[serde(default)]
+    pub installations: Vec<String>,
     pub sources: usize,
 }
 impl ProviderStatus {
@@ -115,6 +119,8 @@ impl ProviderStatus {
             checked_at: None,
             stale: true,
             connected: false,
+            detected: false,
+            installations: vec![],
             sources: 0,
         }
     }

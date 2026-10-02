@@ -18,7 +18,7 @@ fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!(
-            "usage [--refresh] [--online] [--demo] [--json] [--days 1|7|30|90]\n\nAccount usage and cached subscription allowances. Costs are provider reported; model prices are never inferred. --online checks existing account logins for this invocation.\nNo prompts, conversations, or credentials are printed."
+            "usage [--refresh] [--online|--offline] [--demo] [--json] [--period 2h|24h|7d|30d|90d|today] [--days 1|7|30|90]\n\nAccount usage and cached subscription allowances. Costs are provider reported; model prices are never inferred. --online checks existing account logins for this invocation; --offline reads local history only.\nNo prompts, conversations, or credentials are printed."
         );
         return Ok(());
     }
@@ -26,18 +26,32 @@ fn run() -> Result<()> {
     if args.contains(&"--online".into()) {
         config.online = true;
     }
+    if args.contains(&"--offline".into()) {
+        config.online = false;
+    }
     let days = args
         .iter()
         .position(|arg| arg == "--days")
         .map(|index| args.get(index + 1).map(String::as_str).unwrap_or(""))
         .unwrap_or("30");
-    let period = match days {
-        "1" => Period::Today,
+    let mut period = match days {
+        "1" => Period::Day,
         "7" => Period::Week,
         "30" => Period::Month,
         "90" => Period::Quarter,
         _ => bail!("--days must be 1, 7, 30, or 90"),
     };
+    if let Some(index) = args.iter().position(|arg| arg == "--period") {
+        period = match args.get(index + 1).map(String::as_str) {
+            Some("2h") => Period::TwoHours,
+            Some("24h") => Period::Day,
+            Some("7d") => Period::Week,
+            Some("30d") => Period::Month,
+            Some("90d") => Period::Quarter,
+            Some("today") => Period::Today,
+            _ => bail!("--period must be 2h, 24h, 7d, 30d, 90d, or today"),
+        };
+    }
     let is_demo = args.contains(&"--demo".into());
     let snapshot = if is_demo {
         demo::snapshot()
@@ -52,9 +66,10 @@ fn run() -> Result<()> {
             cached
         }
     };
-    let analysis = analytics::analyze(&snapshot, &config, period, None, chrono::Utc::now());
+    let now = chrono::Utc::now();
+    let analysis = analytics::analyze(&snapshot, &config, period, None, now);
     if args.contains(&"--json".into()) {
-        let accounts = snapshot.providers.iter().filter(|status| config.enabled[status.provider.index()] && (status.connected || analysis.providers[status.provider.index()].events > 0)).map(|status| {
+        let accounts = snapshot.providers.iter().filter(|status| config.enabled[status.provider.index()] && (status.detected || status.connected || snapshot.records.iter().any(|record| record.provider == status.provider))).map(|status| {
             let totals = &analysis.providers[status.provider.index()];
             serde_json::json!({"account":status.provider,"plan":status.plan,"reported_usage_cost_usd":totals.spend(),"cost_reporting_events":totals.reported_rows,"tokens":totals.tokens,"sessions":totals.sessions,"status":status})
         }).collect::<Vec<_>>();
@@ -62,7 +77,7 @@ fn run() -> Result<()> {
         println!(
             "{}",
             serde_json::to_string_pretty(
-                &serde_json::json!({"schema":"open-usage.v2","demo":is_demo,"days":period.days(),"reported_usage_cost_usd":analysis.totals.spend(),"cost_reporting_events":analysis.totals.reported_rows,"tokens":analysis.totals.tokens,"sessions":analysis.totals.sessions,"accounts":accounts,"models":models,"refreshed_at":snapshot.refreshed_at,"notices":snapshot.notices})
+                &serde_json::json!({"schema":"open-usage.v2","demo":is_demo,"days":period.days(),"period":period.key(),"starts_at":period.start(now),"ends_at":now,"reported_usage_cost_usd":analysis.totals.spend(),"cost_reporting_events":analysis.totals.reported_rows,"tokens":analysis.totals.tokens,"sessions":analysis.totals.sessions,"accounts":accounts,"models":models,"refreshed_at":snapshot.refreshed_at,"notices":snapshot.notices})
             )?
         );
     } else {
@@ -75,7 +90,8 @@ fn run() -> Result<()> {
         );
         for status in &snapshot.providers {
             let totals = &analysis.providers[status.provider.index()];
-            if !config.enabled[status.provider.index()] || (!status.connected && totals.events == 0)
+            if !config.enabled[status.provider.index()]
+                || (!status.detected && !status.connected && totals.events == 0)
             {
                 continue;
             }

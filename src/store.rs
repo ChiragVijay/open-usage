@@ -17,6 +17,13 @@ impl Store {
         connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
             CREATE TABLE IF NOT EXISTS snapshot (id INTEGER PRIMARY KEY CHECK (id=1), json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, size INTEGER NOT NULL, modified INTEGER NOT NULL, records TEXT NOT NULL);")?;
+        // Re-read normalized history when parser semantics change, preserving the account snapshot.
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if version < 2 {
+            connection.execute_batch(
+                "BEGIN IMMEDIATE; DELETE FROM files; PRAGMA user_version=2; COMMIT;",
+            )?;
+        }
         Ok(Self(connection))
     }
     pub fn load(&self) -> Result<Option<Snapshot>> {

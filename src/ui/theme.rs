@@ -16,39 +16,39 @@ impl Theme {
     pub fn new(dark: bool) -> Self {
         if dark {
             Self {
-                bg: 0x10151c,
-                panel: 0x171f28,
-                sidebar: 0x121921,
-                ink: 0xe6edf3,
-                muted: 0x9ba8b6,
-                line: 0x2c3745,
-                wash: 0x202e42,
-                accent: 0x83aaff,
+                bg: 0x17181b,
+                panel: 0x1d1e22,
+                sidebar: 0x1b1c20,
+                ink: 0xe8e9ed,
+                muted: 0x9c9da7,
+                line: 0x303137,
+                wash: 0x2a293e,
+                accent: 0xa09af4,
             }
         } else {
             Self {
-                bg: 0xf5f6f8,
+                bg: 0xfafafa,
                 panel: 0xffffff,
-                sidebar: 0xffffff,
-                ink: 0x18202b,
-                muted: 0x5e6a78,
-                line: 0xdde3ea,
-                wash: 0xeaf0fa,
-                accent: 0x2864d8,
+                sidebar: 0xf6f7f9,
+                ink: 0x24252b,
+                muted: 0x757681,
+                line: 0xe4e5ea,
+                wash: 0xefeffb,
+                accent: 0x635bd3,
             }
         }
     }
 }
 pub fn color(provider: Provider) -> u32 {
     match provider {
-        Provider::Codex => 0x328c80,
-        Provider::Claude => 0xb77350,
-        Provider::Cursor => 0x607bb4,
+        Provider::Codex => 0x67988b,
+        Provider::Claude => 0xb98971,
+        Provider::Cursor => 0x8b86bf,
     }
 }
 pub fn tint(provider: Provider, dark: bool) -> u32 {
     if dark {
-        0x202d3c
+        0x282930
     } else {
         match provider {
             Provider::Codex => 0xebf4f2,
@@ -114,8 +114,8 @@ pub fn panel(theme: Theme) -> Div {
         .bg(rgb(theme.panel))
         .border_1()
         .border_color(rgb(theme.line))
-        .rounded(px(8.))
-        .p(px(20.))
+        .rounded(px(6.))
+        .p(px(18.))
 }
 pub fn dot(provider: Provider) -> Div {
     div()

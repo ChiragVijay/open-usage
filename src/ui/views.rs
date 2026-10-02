@@ -9,7 +9,7 @@ impl Dashboard {
     pub(super) fn sidebar(&self, cx: &Context<Self>) -> Div {
         let theme = self.theme();
         div()
-            .w(px(188.))
+            .w(px(200.))
             .flex_shrink_0()
             .h_full()
             .bg(rgb(theme.sidebar))
@@ -19,15 +19,15 @@ impl Dashboard {
             .flex_col()
             .child(
                 div()
-                    .h(px(64.))
+                    .h(px(52.))
                     .px(px(18.))
                     .flex()
                     .items_center()
                     .gap(px(10.))
                     .child(
                         div()
-                            .size(px(28.))
-                            .rounded(px(7.))
+                            .size(px(24.))
+                            .rounded(px(5.))
                             .bg(rgb(theme.accent))
                             .flex()
                             .items_center()
@@ -43,7 +43,7 @@ impl Dashboard {
             .child(
                 div()
                     .px(px(12.))
-                    .pt(px(20.))
+                    .pt(px(14.))
                     .flex()
                     .flex_col()
                     .gap(px(5.))
@@ -115,7 +115,7 @@ impl Dashboard {
             .id(SharedString::from(format!("nav-{}", page.title())))
             .focusable()
             .tab_index(0)
-            .h(px(38.))
+            .h(px(32.))
             .rounded(px(6.))
             .px(px(12.))
             .flex()
@@ -156,7 +156,7 @@ impl Dashboard {
             .map(|time| format!("Updated {}", time.with_timezone(&Local).format("%H:%M")))
             .unwrap_or_else(|| "Not synced".into());
         div()
-            .h(px(64.))
+            .h(px(52.))
             .flex_shrink_0()
             .px(px(24.))
             .bg(rgb(theme.panel))
@@ -165,7 +165,7 @@ impl Dashboard {
             .flex()
             .items_center()
             .gap(px(10.))
-            .child(title(self.page.title(), theme).text_size(px(18.)))
+            .child(title(self.page.title(), theme).text_size(px(16.)))
             .child(div().flex_1())
             .child(
                 label(
@@ -179,6 +179,14 @@ impl Dashboard {
                 .text_size(px(12.))
                 .mr(px(4.)),
             )
+            .child(self.button(
+                "header-theme",
+                if self.config.dark { "Dark" } else { "Light" },
+                Some("theme"),
+                false,
+                UiAction::Dark,
+                cx,
+            ))
             .child(self.button(
                 "header-refresh",
                 "Refresh",
@@ -200,11 +208,11 @@ impl Dashboard {
         let theme = self.theme();
         div()
             .w_full()
-            .max_w(px(1400.))
+            .max_w(px(1200.))
             .mx_auto()
             .flex()
             .flex_col()
-            .gap(px(18.))
+            .gap(px(16.))
             .when(self.demo, |body| {
                 body.child(
                     div()
@@ -242,8 +250,12 @@ impl Dashboard {
             .p(px(3.))
             .children(Period::ALL.into_iter().map(|period| {
                 self.button(
-                    format!("period-{}", period.days()),
-                    period.label(),
+                    format!("period-{}", period.key()),
+                    match period {
+                        Period::TwoHours => "2 hours",
+                        Period::Day => "24 hours",
+                        _ => period.label(),
+                    },
                     None,
                     self.period == period,
                     UiAction::Period(period),
@@ -317,35 +329,149 @@ impl Dashboard {
     }
     pub(super) fn overview(&self, cx: &Context<Self>) -> Div {
         let theme = self.theme();
-        let analysis = analytics::analyze(self.data(), &self.config, self.period, None, Utc::now());
+        let now = Utc::now();
+        let analysis = analytics::analyze(self.data(), &self.config, self.period, None, now);
         let accounts = self.visible_accounts();
         let body = self.page_body(cx).child(
             div()
                 .flex()
                 .items_center()
-                .justify_between()
-                .child(label(
-                    format!(
-                        "{} account{}",
-                        accounts.len(),
-                        if accounts.len() == 1 { "" } else { "s" }
-                    ),
-                    theme,
-                ))
+                .gap(px(12.))
+                .child(title("Account usage", theme))
+                .child(
+                    label(
+                        format!(
+                            "{} account{}",
+                            accounts.len(),
+                            if accounts.len() == 1 { "" } else { "s" }
+                        ),
+                        theme,
+                    )
+                    .text_size(px(12.)),
+                )
+                .child(div().flex_1())
                 .child(self.periods(cx)),
         );
         if accounts.is_empty() {
-            return body.child(panel(theme).py(px(40.)).child(title("No connected accounts",theme))
-                .child(label("Connect a signed-in account or add local history to start tracking usage.",theme).mt(px(8.)))
-                .child(self.button("empty-connect","Connections",Some("connections"),false,UiAction::Page(Page::Connections),cx).mt(px(20.))));
+            return body.child(
+                panel(theme)
+                    .py(px(36.))
+                    .child(title("No agents detected", theme))
+                    .child(
+                        label(
+                            "Open a supported agent, or add its local data folder.",
+                            theme,
+                        )
+                        .mt(px(8.)),
+                    )
+                    .child(
+                        self.button(
+                            "empty-connect",
+                            "Find agents",
+                            Some("connections"),
+                            false,
+                            UiAction::Page(Page::Connections),
+                            cx,
+                        )
+                        .mt(px(18.)),
+                    ),
+            );
         }
-        body.child(div().flex().gap(px(16.)).children(accounts.iter().map(|status|self.account_card(status,&analysis.providers[status.provider.index()],cx))))
-            .child(self.chart(&analysis,cx))
-            .child(div().flex().items_center().justify_between().child(label("USD · Costs are reported by the account provider. Subscription fees are excluded.",theme).text_size(px(12.)))
-                .child(self.button("account-export","Export CSV",Some("export"),false,UiAction::Export,cx)))
-            .when(!self.config.online,|body|body.child(div().flex().items_center().gap(px(10.)).child(label("Account sync is off. Enable it to read allowances and Cursor usage.",theme)).child(self.button("account-sync-settings","Connections",None,false,UiAction::Page(Page::Connections),cx))))
+        let summary = div()
+            .flex()
+            .gap(px(32.))
+            .py(px(6.))
+            .child(self.metric(
+                "Tokens",
+                self.number(analysis.totals.tokens.total()),
+                self.period.label(),
+            ))
+            .child(self.metric(
+                "Reported cost",
+                self.spend(&analysis.totals),
+                if analysis.totals.reported_rows == 0 {
+                    "No cost reported"
+                } else {
+                    "From account usage records"
+                },
+            ))
+            .child(self.metric(
+                "Sessions",
+                self.number(analysis.totals.sessions as u64),
+                "Recorded session IDs",
+            ));
+        let table = panel(theme)
+            .p_0()
+            .overflow_hidden()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(20.))
+                    .px(px(18.))
+                    .py(px(11.))
+                    .bg(rgb(theme.sidebar))
+                    .border_b_1()
+                    .border_color(rgb(theme.line))
+                    .child(label("Account", theme).flex_1().min_w(px(180.)))
+                    .child(label("Tokens", theme).w(px(100.)))
+                    .child(label("Reported cost", theme).w(px(130.)))
+                    .child(label("Allowance", theme).w(px(250.)))
+                    .child(div().w(px(60.))),
+            )
+            .children(accounts.iter().map(|status| {
+                self.account_row(status, &analysis.providers[status.provider.index()], cx)
+            }));
+        body.child(summary)
+            .child(table)
+            .child(self.chart(&analysis, cx))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .child(
+                        label(
+                            "USD · Reported usage only. Subscription fees excluded.",
+                            theme,
+                        )
+                        .text_size(px(11.)),
+                    )
+                    .child(div().flex_1())
+                    .child(self.button(
+                        "account-export",
+                        "Export",
+                        Some("export"),
+                        false,
+                        UiAction::Export,
+                        cx,
+                    )),
+            )
+            .when(!self.config.online, |body| {
+                body.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .child(
+                            label(
+                                "Account checks paused · local history is still updated",
+                                theme,
+                            )
+                            .text_size(px(12.)),
+                        )
+                        .child(self.button(
+                            "account-sync-settings",
+                            "Connections",
+                            None,
+                            false,
+                            UiAction::Page(Page::Connections),
+                            cx,
+                        )),
+                )
+            })
     }
-    fn account_card(&self, status: &ProviderStatus, totals: &Totals, cx: &Context<Self>) -> Div {
+    fn account_row(&self, status: &ProviderStatus, totals: &Totals, cx: &Context<Self>) -> Div {
         let theme = self.theme();
         let provider = status.provider;
         let reading = if self.demo {
@@ -354,77 +480,110 @@ impl Dashboard {
             "Live"
         } else if status.checked_at.is_some() {
             "Cached"
-        } else {
+        } else if status.connected {
             "Local"
+        } else {
+            "Detected"
         };
-        panel(theme)
-            .flex_1()
-            .min_w_0()
+        let has_history = status.connected
+            || self
+                .data()
+                .records
+                .iter()
+                .any(|record| record.provider == provider);
+        let description = status.plan.as_deref().map(plan_name).unwrap_or_else(|| {
+            if has_history {
+                if provider == Provider::Cursor {
+                    "Account usage records".into()
+                } else {
+                    "Local agent history".into()
+                }
+            } else {
+                "No usage recorded yet".into()
+            }
+        });
+        div()
             .flex()
-            .flex_col()
-            .gap(px(18.))
+            .items_center()
+            .gap(px(20.))
+            .px(px(18.))
+            .py(px(16.))
+            .border_b_1()
+            .border_color(rgb(theme.line))
             .child(
                 div()
+                    .flex_1()
+                    .min_w(px(180.))
                     .flex()
                     .items_center()
-                    .gap(px(11.))
-                    .child(provider_mark(provider, self.config.dark))
+                    .gap(px(10.))
+                    .child(provider_mark(provider, self.config.dark).size(px(30.)))
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
-                            .child(title(provider.account_name(), theme))
+                            .child(title(provider.account_name(), theme).text_size(px(13.)))
+                            .child(label(description, theme).text_size(px(11.)).mt(px(4.)))
                             .child(
-                                label(
-                                    status
-                                        .plan
-                                        .as_deref()
-                                        .map(plan_name)
-                                        .unwrap_or_else(|| "Plan not reported".into()),
-                                    theme,
-                                )
-                                .text_size(px(12.))
-                                .mt(px(3.)),
+                                div()
+                                    .flex()
+                                    .mt(px(7.))
+                                    .child(self.badge(reading, !self.demo && !status.stale)),
                             ),
+                    ),
+            )
+            .child(
+                div()
+                    .w(px(100.))
+                    .font_family(mono_font())
+                    .text_size(px(14.))
+                    .child(if has_history {
+                        self.number(totals.tokens.total())
+                    } else {
+                        "—".into()
+                    }),
+            )
+            .child(
+                div()
+                    .w(px(130.))
+                    .child(
+                        div()
+                            .font_family(mono_font())
+                            .text_size(px(14.))
+                            .child(self.spend(totals)),
                     )
-                    .child(self.badge(reading, !self.demo && !status.stale)),
-            )
-            .child(
-                div()
-                    .flex()
-                    .gap(px(18.))
-                    .child(self.metric(
-                        "Tokens",
-                        self.number(totals.tokens.total()),
-                        self.period.label(),
-                    ))
-                    .child(self.metric(
-                        "Reported usage cost",
-                        self.spend(totals),
-                        if totals.reported_rows > 0 {
-                            "Provider reported"
-                        } else {
-                            "Not reported"
-                        },
-                    )),
-            )
-            .child(
-                div()
-                    .border_t_1()
-                    .border_color(rgb(theme.line))
-                    .pt(px(15.))
-                    .flex()
-                    .flex_col()
-                    .gap(px(15.))
-                    .when(status.limits.is_empty(), |row| {
-                        row.child(label(
-                            if self.config.online {
-                                "No account allowances reported"
+                    .child(
+                        label(
+                            if totals.reported_rows == 0 {
+                                "Not reported".into()
                             } else {
-                                "Enable account sync for allowances"
+                                format!("{} recorded events", totals.reported_rows)
                             },
                             theme,
-                        ))
+                        )
+                        .text_size(px(11.))
+                        .mt(px(5.)),
+                    ),
+            )
+            .child(
+                div()
+                    .w(px(250.))
+                    .flex_shrink_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(13.))
+                    .when(status.limits.is_empty(), |column| {
+                        column.child(
+                            label(
+                                if status.detected && !status.connected {
+                                    "Signed-in account not available"
+                                } else {
+                                    "No allowance reported"
+                                },
+                                theme,
+                            )
+                            .text_size(px(12.)),
+                        )
                     })
                     .children(
                         status
@@ -434,40 +593,14 @@ impl Dashboard {
                             .map(|limit| self.quota(limit, status.stale, provider)),
                     ),
             )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .mt_auto()
-                    .child(self.button(
-                        format!("history-{}", provider.key()),
-                        "Activity",
-                        None,
-                        false,
-                        UiAction::AccountActivity(provider),
-                        cx,
-                    ))
-                    .child(self.button(
-                        format!("dashboard-{}", provider.key()),
-                        "Account",
-                        Some("arrow"),
-                        false,
-                        UiAction::OpenProvider(provider),
-                        cx,
-                    ))
-                    .child(div().flex_1())
-                    .child(
-                        label(
-                            status
-                                .checked_at
-                                .map(|at| at.with_timezone(&Local).format("%H:%M").to_string())
-                                .unwrap_or_else(|| "Local history".into()),
-                            theme,
-                        )
-                        .text_size(px(11.)),
-                    ),
-            )
+            .child(div().w(px(60.)).child(self.button(
+                format!("history-{}", provider.key()),
+                "View",
+                Some("arrow"),
+                false,
+                UiAction::AccountActivity(provider),
+                cx,
+            )))
     }
     fn quota(&self, limit: &LimitWindow, stale: bool, provider: Provider) -> Div {
         let theme = self.theme();
@@ -491,7 +624,8 @@ impl Dashboard {
         div()
             .flex()
             .flex_col()
-            .gap(px(7.))
+            .line_height(relative(1.2))
+            .gap(px(5.))
             .child(
                 div()
                     .flex()
@@ -560,11 +694,19 @@ impl Dashboard {
             .map(|bucket| {
                 format!(
                     "{} · {}",
-                    bucket.date.format("%b %-d"),
+                    format_args!(
+                        "{}–{}",
+                        self.period.bucket_label(bucket.start),
+                        self.period.bucket_label(bucket.end)
+                    ),
                     if self.token_chart {
                         format!("{} tokens", self.number(bucket.tokens.iter().sum()))
                     } else {
-                        self.money(bucket.cost.iter().sum())
+                        if bucket.cost_rows.iter().sum::<usize>() > 0 {
+                            self.money(bucket.cost.iter().sum())
+                        } else {
+                            "Not reported".into()
+                        }
                     }
                 )
             })
@@ -585,7 +727,7 @@ impl Dashboard {
                     .flex()
                     .items_center()
                     .gap(px(12.))
-                    .child(title("Daily usage", theme))
+                    .child(title(self.period.chart_title(), theme).text_size(px(13.)))
                     .child(div().flex_1())
                     .child(self.button(
                         "chart-tokens",
@@ -620,10 +762,12 @@ impl Dashboard {
                 div()
                     .id("daily-plot")
                     .mt(px(20.))
-                    .h(px(140.))
+                    .h(px(120.))
+                    .border_b_1()
+                    .border_color(rgb(theme.line))
                     .flex()
                     .items_end()
-                    .gap(px(5.))
+                    .gap(px(if analysis.buckets.len() > 30 { 2. } else { 5. }))
                     .on_hover(cx.listener(|view, hovered: &bool, _, cx| {
                         if !hovered && view.hovered_day.take().is_some() {
                             cx.notify();
@@ -636,7 +780,11 @@ impl Dashboard {
                             } else if self.token_chart {
                                 "No token usage in this period"
                             } else {
-                                "No reported cost in this period"
+                                if analysis.totals.reported_rows > 0 {
+                                    "Reported usage cost is $0.00"
+                                } else {
+                                    "No reported cost in this period"
+                                }
                             },
                             theme,
                         ))
@@ -660,7 +808,7 @@ impl Dashboard {
                                 }))
                                 .children(Provider::ALL.into_iter().rev().map(|provider| {
                                     div()
-                                        .h(px((values[provider.index()] / maximum * 132.0) as f32))
+                                        .h(px((values[provider.index()] / maximum * 112.0) as f32))
                                         .w_full()
                                         .rounded(px(2.))
                                         .bg(rgb(color(provider)))
@@ -678,7 +826,7 @@ impl Dashboard {
                             analysis
                                 .buckets
                                 .first()
-                                .map(|bucket| bucket.date.format("%b %-d").to_string())
+                                .map(|bucket| self.period.bucket_label(bucket.start))
                                 .unwrap_or_default(),
                             theme,
                         )
@@ -689,7 +837,7 @@ impl Dashboard {
                             analysis
                                 .buckets
                                 .last()
-                                .map(|bucket| bucket.date.format("%b %-d").to_string())
+                                .map(|bucket| self.period.bucket_label(bucket.end))
                                 .unwrap_or_default(),
                             theme,
                         )
@@ -1106,24 +1254,49 @@ impl Dashboard {
     }
     pub(super) fn connections(&self, cx: &Context<Self>) -> Div {
         let theme = self.theme();
+        let detected = self
+            .live
+            .providers
+            .iter()
+            .filter(|status| {
+                status.detected
+                    || status.connected
+                    || self
+                        .live
+                        .records
+                        .iter()
+                        .any(|record| record.provider == status.provider)
+            })
+            .collect::<Vec<_>>();
         self.page_body(cx)
-            .child(panel(theme).flex().items_center().gap(px(20.)).child(div().flex_1().child(title("Account sync",theme))
-                .child(label("Read usage and allowances from existing signed-in accounts.",theme).mt(px(6.))))
-                .child(self.button("connections-sync",if self.config.online{"Pause"}else{"Enable"},None,self.config.online,UiAction::Online,cx)))
-            .children(Provider::ALL.into_iter().map(|provider|{
-                let status=&self.live.providers[provider.index()];
-                panel(theme).child(div().flex().items_center().gap(px(12.)).child(provider_mark(provider,self.config.dark))
-                    .child(div().flex_1().child(title(provider.account_name(),theme)).child(label(status.plan.as_deref().map(plan_name).unwrap_or_else(||if status.connected{"Local history available".into()}else{"Not connected".into()}),theme).mt(px(4.))))
-                    .child(self.button(format!("enable-{}",provider.key()),if self.config.enabled[provider.index()]{"Tracking"}else{"Paused"},None,self.config.enabled[provider.index()],UiAction::Enable(provider),cx)))
-                    .child(label(status.detail.clone(),theme).mt(px(14.)))
-                    .child(div().mt(px(16.)).flex().items_center().gap(px(8.))
+            .child(panel(theme).flex().items_center().gap(px(20.))
+                .child(div().flex_1().child(title("Account checks", theme))
+                    .child(label("Read costs and allowances using existing logins. Usage history stays on this device.", theme).mt(px(6.))))
+                .child(self.button("connections-sync", if self.config.online { "Pause" } else { "Resume" }, None, self.config.online, UiAction::Online, cx)))
+            .child(div().flex().items_center().child(title("Detected agents", theme))
+                .child(div().flex_1()).child(self.button("discovery-refresh", "Scan again", Some("refresh"), false, UiAction::Refresh, cx)))
+            .when(detected.is_empty(), |body| body.child(panel(theme).child(label("No supported agents found. Install or open an agent, then scan again.", theme))))
+            .children(detected.iter().map(|status| {
+                let provider = status.provider;
+                panel(theme)
+                    .child(div().flex().items_center().gap(px(12.)).child(provider_mark(provider,self.config.dark))
+                        .child(div().flex_1().child(title(provider.account_name(),theme)))
+                        .child(self.button(format!("enable-{}",provider.key()),if self.config.enabled[provider.index()]{"Tracking"}else{"Paused"},None,self.config.enabled[provider.index()],UiAction::Enable(provider),cx)))
+                    .child(label(status.detail.clone(),theme).text_size(px(12.)).mt(px(12.)))
+                    .when(!self.config.privacy, |card| card.children(status.installations.iter().take(2).map(|path|
+                        label(path.clone(),theme).font_family(mono_font()).text_size(px(11.)).mt(px(7.)).truncate())))
+                    .child(div().mt(px(14.)).flex().items_center().gap(px(8.))
                         .child(self.button(format!("add-home-{}",provider.key()),"Add folder",Some("connections"),false,UiAction::AddHome(provider),cx))
                         .when(provider==Provider::Cursor,|row|row.child(self.button("cursor-csv","Import CSV",Some("export"),false,UiAction::ImportCursor,cx)))
                         .when(provider==Provider::Cursor&&!self.config.cursor_imports.is_empty(),|row|row.child(self.button("cursor-clear","Remove import",None,false,UiAction::ClearCursor,cx)))
                         .child(div().flex_1()).child(self.button(format!("open-account-{}",provider.key()),"Open account",Some("arrow"),false,UiAction::OpenProvider(provider),cx)))
-                    .when(!self.config.custom_homes[provider.index()].is_empty(),|card|card.child(label(format!("{} additional folders",self.config.custom_homes[provider.index()].len()),theme).text_size(px(12.)).mt(px(12.))))
             }))
-            .child(label("Cursor CSV replaces account history. Codex and Claude use local history. Credentials are never stored; macOS may request Keychain access.",theme).text_size(px(12.)))
+            .child(panel(theme).child(title("Other data locations",theme))
+                .child(label("Add an existing history folder or a Cursor usage export.",theme).text_size(px(12.)).mt(px(6.)))
+                .child(div().mt(px(14.)).flex().gap(px(8.))
+                    .child(self.button("manual-codex","Codex folder",None,false,UiAction::AddHome(Provider::Codex),cx))
+                    .child(self.button("manual-claude","Claude Code folder",None,false,UiAction::AddHome(Provider::Claude),cx))
+                    .child(self.button("manual-cursor","Cursor CSV",None,false,UiAction::ImportCursor,cx))))
     }
     pub(super) fn settings(&self, cx: &Context<Self>) -> Div {
         let theme = self.theme();

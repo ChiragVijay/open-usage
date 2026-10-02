@@ -1,3 +1,4 @@
+pub mod discovery;
 pub mod history;
 pub mod live;
 
@@ -32,6 +33,12 @@ pub fn homes(provider: Provider, config: &Config) -> Vec<PathBuf> {
         }
     };
     let mut paths = vec![default];
+    if provider == Provider::Cursor {
+        paths.push(home.join(".cursor"));
+        if cfg!(target_os = "macos") {
+            paths.push(home.join("Library/Application Support/Cursor"));
+        }
+    }
     paths.extend(config.custom_homes[provider.index()].iter().cloned());
     paths = paths
         .into_iter()
@@ -46,8 +53,12 @@ pub fn collect(config: &Config, previous: &Snapshot) -> Result<Snapshot> {
     let store = Store::open()?;
     let mut snapshot = Snapshot::default();
     let mut records = BTreeMap::<String, UsageRecord>::new();
+    let environment = discovery::Environment::current();
     for provider in Provider::ALL {
         let status = &mut snapshot.providers[provider.index()];
+        let directories = homes(provider, config);
+        status.installations = discovery::detect(provider, &directories, &environment);
+        status.detected = !status.installations.is_empty();
         if !config.enabled[provider.index()] {
             status.detail = "Paused in Connections".into();
             continue;
@@ -58,7 +69,6 @@ pub fn collect(config: &Config, previous: &Snapshot) -> Result<Snapshot> {
             status.plan = old.plan.clone();
             status.stale = true;
         }
-        let directories = homes(provider, config);
         let mut file_errors = 0;
         if provider != Provider::Cursor {
             let subdirs: &[&str] = if provider == Provider::Codex {
@@ -142,6 +152,8 @@ pub fn collect(config: &Config, previous: &Snapshot) -> Result<Snapshot> {
         status.connected = status.sources > 0;
         status.detail = if status.connected {
             format!("{} history files · local", status.sources)
+        } else if status.detected {
+            "Detected on this device · no local usage yet".into()
         } else if provider == Provider::Cursor {
             "Import a usage CSV or enable account checks".into()
         } else {
@@ -170,7 +182,7 @@ pub fn collect(config: &Config, previous: &Snapshot) -> Result<Snapshot> {
                 status.detail = "Cached Cursor account history".into();
             }
         }
-        if config.online {
+        if config.online && (status.detected || status.connected || status.checked_at.is_some()) {
             match live::fetch(provider, &directories) {
                 Ok(data) => {
                     status.limits = data.limits;

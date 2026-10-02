@@ -205,7 +205,7 @@ pub fn fetch(provider: Provider, homes: &[PathBuf]) -> Result<LiveData> {
         .timeout(Duration::from_secs(12))
         .connect_timeout(Duration::from_secs(5))
         .redirect(reqwest::redirect::Policy::none())
-        .user_agent("OpenUsage/0.1.0")
+        .user_agent(concat!("OpenUsage/", env!("CARGO_PKG_VERSION")))
         .build()?;
     match provider {
         Provider::Codex => {

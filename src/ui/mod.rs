@@ -342,7 +342,8 @@ impl Dashboard {
             .iter()
             .filter(|status| {
                 self.config.enabled[status.provider.index()]
-                    && (status.connected
+                    && (status.detected
+                        || status.connected
                         || self
                             .data()
                             .records
@@ -596,6 +597,9 @@ impl Dashboard {
         Button::new(SharedString::from(id.into()))
             .label(text.into())
             .small()
+            .text_size(px(12.))
+            .h(px(28.))
+            .rounded(px(5.))
             .custom(
                 ButtonCustomVariant::new(cx)
                     .color(rgb(if active { theme.wash } else { theme.panel }).into())
@@ -614,7 +618,16 @@ impl Dashboard {
     fn key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
         let mods = event.keystroke.modifiers;
-        let action = if mods.control || mods.platform {
+        let action = if (mods.control || mods.platform) && mods.shift {
+            match key {
+                "1" => Some(UiAction::Period(Period::TwoHours)),
+                "2" => Some(UiAction::Period(Period::Day)),
+                "3" => Some(UiAction::Period(Period::Week)),
+                "4" => Some(UiAction::Period(Period::Month)),
+                "5" => Some(UiAction::Period(Period::Quarter)),
+                _ => None,
+            }
+        } else if mods.control || mods.platform {
             match key {
                 "r" => Some(UiAction::Refresh),
                 "p" => Some(UiAction::Privacy),
@@ -700,6 +713,7 @@ impl Render for Dashboard {
             .text_color(rgb(theme.ink))
             .font_family(body_font())
             .text_size(px(14.))
+            .line_height(relative(1.4))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|view, _, window, cx| {
