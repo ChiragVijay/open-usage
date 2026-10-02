@@ -131,6 +131,10 @@ pub fn icon(name: &'static str, theme: Theme) -> Svg {
         .text_color(rgb(theme.muted))
 }
 pub fn provider_mark(provider: Provider, dark: bool) -> Div {
+    let foreground = match provider {
+        Provider::Claude => 0xd97757,
+        _ => Theme::new(dark).ink,
+    };
     div()
         .size(px(36.))
         .rounded(px(8.))
@@ -141,14 +145,23 @@ pub fn provider_mark(provider: Provider, dark: bool) -> Div {
         .child(
             gpui::svg()
                 .path(provider.key())
-                .size(px(23.))
-                .text_color(rgb(color(provider))),
+                .size(px(26.))
+                .text_color(rgb(foreground)),
         )
 }
 
 pub struct Assets;
 impl gpui::AssetSource for Assets {
     fn load(&self, path: &str) -> anyhow::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        let provider_logo: Option<&'static [u8]> = match path {
+            "codex" => Some(include_bytes!("../../assets/providers/codex.svg")),
+            "claude" => Some(include_bytes!("../../assets/providers/claude.svg")),
+            "cursor" => Some(include_bytes!("../../assets/providers/cursor.svg")),
+            _ => None,
+        };
+        if let Some(logo) = provider_logo {
+            return Ok(Some(std::borrow::Cow::Borrowed(logo)));
+        }
         let shape = match path {
             "overview" => {
                 "<rect x='3' y='3' width='7' height='7' rx='1.5'/><rect x='14' y='3' width='7' height='7' rx='1.5'/><rect x='3' y='14' width='7' height='7' rx='1.5'/><rect x='14' y='14' width='7' height='7' rx='1.5'/>"
@@ -167,11 +180,6 @@ impl gpui::AssetSource for Assets {
             }
             "theme" => "<path d='M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11z'/>",
             "arrow" => "<path d='m9 5 7 7-7 7'/>",
-            "codex" => "<path d='m8 5-6 7 6 7m8-14 6 7-6 7M14 3l-4 18'/>",
-            "claude" => {
-                "<path d='M12 2v20M2 12h20M5 5l14 14M5 19 19 5M8 3l8 18M3 8l18 8M3 16l18-8M8 21l8-18'/>"
-            }
-            "cursor" => "<path d='m5 3 14 9-7 2-3 7z'/>",
             "brand" => "<path d='M4 16V8a4 4 0 0 1 8 0v8a4 4 0 0 0 8 0V8M4 12h16'/>",
             _ => return Ok(None),
         };

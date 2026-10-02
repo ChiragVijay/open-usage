@@ -1306,7 +1306,7 @@ impl Dashboard {
                 .child(self.preference_row("Privacy mode","Hide amounts, tokens, projects and paths",self.button("privacy-toggle",if self.config.privacy{"Hidden"}else{"Visible"},Some("privacy"),self.config.privacy,UiAction::Privacy,cx))))
             .child(panel(theme).child(title("Data",theme))
                 .child(div().mt(px(20.)).flex().items_center().justify_between().child(label("Automatic refresh",theme))
-                    .child(div().flex().gap(px(6.)).children([(60,"1 min"),(300,"5 min"),(900,"15 min")].into_iter().map(|(seconds,text)|self.button(format!("refresh-{seconds}"),text,None,self.config.refresh_seconds==seconds,UiAction::Interval(seconds),cx)))))
+                    .child(div().flex().gap(px(6.)).children(open_usage::config::REFRESH_INTERVALS.into_iter().map(|seconds|self.button(format!("refresh-{seconds}"),if seconds==3600 { "1 hour".into() } else { format!("{} min",seconds/60) },None,self.config.refresh_seconds==seconds,UiAction::Interval(seconds),cx)))))
                 .child(label("Costs come from account usage. Token pricing and subscription fees are not calculated.",theme).mt(px(20.)).text_size(px(12.))))
             .child(panel(theme).child(div().flex().justify_between().child(title(if cfg!(target_os="macos"){"Menu bar"}else{"System tray"},theme)).child(self.badge(if self.tray.is_some(){"Active"}else if self.tray_attempted{"Unavailable"}else{"Starting"},self.tray.is_some())))
                 .child(label(if self.tray.is_some(){"Click for quick view. Right-click for refresh and quit. Closing the window keeps usage tracking active."}else{"Closing the window quits the app when the system tray is unavailable."},theme).mt(px(12.)))

@@ -90,7 +90,7 @@ cargo run --no-default-features --bin usage -- --offline --period 2h --json
 
 Settings and the SQLite metadata cache live in `%LOCALAPPDATA%/open-usage` on Windows and `~/Library/Application Support/open-usage` on macOS. `OPEN_USAGE_DATA_DIR` redirects both for testing. Stored metadata includes source paths, tokens, timestamps and reported usage cost; credentials and conversations are excluded. There is no telemetry or hosted backend.
 
-History scans and account checks run off the UI thread. Automatic refresh supports 1, 5, or 15 minutes. Unchanged files reuse normalized cached records; changed files are re-read. Parser upgrades invalidate normalized file caches while preserving account history. Failed checks preserve prior data and mark account readings cached. Existing settings remain compatible; obsolete pricing overrides are ignored.
+History scans and account checks run off the UI thread. **Settings → Data → Automatic refresh** defaults to **30 minutes**, with **5 minutes, 10 minutes, 30 minutes, or 1 hour** available. The choice is saved across launches. Existing supported choices are preserved; legacy 1- and 15-minute intervals switch to 30 minutes. Unchanged files reuse normalized cached records; changed files are re-read. Parser upgrades invalidate normalized file caches while preserving account history. Failed checks preserve prior data and mark account readings cached. Existing settings remain compatible; obsolete pricing overrides are ignored.
 
 ## Build and verify
 
@@ -109,5 +109,7 @@ Windows compilation, the account dashboard, live Codex/Cursor reads, tray initia
 ## References
 
 [OpenUsage](https://www.openusage.ai/), [t3code's usage documentation](https://github.com/pingdotgg/t3code/blob/54084ae1e6c32809db040e4fa571c80fdf2d8ae4/docs/user/usage.md), and [Longbridge GPUI components](https://github.com/longbridge/gpui-component) inform the design and provider schemas. This is an independent Rust implementation.
+
+The bundled OpenAI, Claude, and Cursor SVG marks come from [OpenUsage's provider icon assets](https://github.com/robinebers/openusage/tree/ae49de04a2b7fc1b3cc334fcc1009276c46d82ad/Sources/OpenUsage/Resources/ProviderIcons). They render locally in account rows, Connections, Limits, and the quick view, with colors suited to each theme.
 
 [OpenUsage's pricing documentation](https://github.com/robinebers/openusage/blob/main/docs/pricing.md) describes estimates from dynamically refreshed pricing catalogs. [t3code's pricing implementation](https://github.com/pingdotgg/t3code/blob/54084ae1e6c32809db040e4fa571c80fdf2d8ae4/apps/server/src/usage/usagePricing.ts) prefers reported costs, then calculates API-equivalent estimates. This app uses reported amounts only; even dynamically fetched API rates would not establish your account's actual charges.

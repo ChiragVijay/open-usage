@@ -2,6 +2,9 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 
+pub const DEFAULT_REFRESH_SECONDS: u64 = 1800;
+pub const REFRESH_INTERVALS: [u64; 4] = [300, 600, 1800, 3600];
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -20,7 +23,7 @@ impl Default for Config {
             enabled: [true; 3],
             dark: false,
             privacy: false,
-            refresh_seconds: 300,
+            refresh_seconds: DEFAULT_REFRESH_SECONDS,
             custom_homes: Default::default(),
             cursor_imports: vec![],
         }
@@ -43,7 +46,9 @@ impl Config {
         }
         let mut config: Self =
             serde_json::from_slice(&fs::read(&path)?).context("Settings could not be read")?;
-        config.refresh_seconds = config.refresh_seconds.clamp(60, 3600);
+        if !REFRESH_INTERVALS.contains(&config.refresh_seconds) {
+            config.refresh_seconds = DEFAULT_REFRESH_SECONDS;
+        }
         Ok(config)
     }
     pub fn save(&self) -> Result<()> {
