@@ -1,0 +1,164 @@
+use gpui::{Div, FontWeight, SharedString, Svg, div, prelude::*, px, rgb};
+use open_usage::model::Provider;
+
+#[derive(Clone, Copy)]
+pub struct Theme {
+    pub bg: u32,
+    pub panel: u32,
+    pub sidebar: u32,
+    pub ink: u32,
+    pub muted: u32,
+    pub line: u32,
+    pub wash: u32,
+    pub accent: u32,
+}
+impl Theme {
+    pub fn new(dark: bool) -> Self {
+        if dark {
+            Self {
+                bg: 0x141824,
+                panel: 0x1c2231,
+                sidebar: 0x181d2a,
+                ink: 0xe9edf8,
+                muted: 0x9aa6bf,
+                line: 0x30394d,
+                wash: 0x252d43,
+                accent: 0xab9eff,
+            }
+        } else {
+            Self {
+                bg: 0xf6f7fb,
+                panel: 0xffffff,
+                sidebar: 0xfafaff,
+                ink: 0x222941,
+                muted: 0x71798f,
+                line: 0xe9ecf3,
+                wash: 0xeeedf9,
+                accent: 0x7666cb,
+            }
+        }
+    }
+}
+pub fn color(provider: Provider) -> u32 {
+    match provider {
+        Provider::Codex => 0x33958a,
+        Provider::Claude => 0xd18d68,
+        Provider::Cursor => 0x8975d5,
+    }
+}
+pub fn tint(provider: Provider, dark: bool) -> u32 {
+    if dark {
+        0x293044
+    } else {
+        match provider {
+            Provider::Codex => 0xe9f5f2,
+            Provider::Claude => 0xfaf0e9,
+            Provider::Cursor => 0xf0ecfb,
+        }
+    }
+}
+pub fn body_font() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "Segoe UI"
+    } else {
+        ".AppleSystemUIFont"
+    }
+}
+pub fn display_font() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "Segoe UI Variable Display"
+    } else {
+        ".AppleSystemUIFont"
+    }
+}
+pub fn mono_font() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "Cascadia Mono"
+    } else {
+        "Menlo"
+    }
+}
+pub fn label(text: impl Into<SharedString>, theme: Theme) -> Div {
+    div()
+        .text_size(px(12.))
+        .text_color(rgb(theme.muted))
+        .child(text.into())
+}
+pub fn title(text: impl Into<SharedString>, theme: Theme) -> Div {
+    div()
+        .text_size(px(16.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(rgb(theme.ink))
+        .child(text.into())
+}
+pub fn panel(theme: Theme) -> Div {
+    div()
+        .bg(rgb(theme.panel))
+        .border_1()
+        .border_color(rgb(theme.line))
+        .rounded(px(16.))
+        .p(px(22.))
+}
+pub fn dot(provider: Provider) -> Div {
+    div()
+        .size(px(7.))
+        .rounded_full()
+        .bg(rgb(color(provider)))
+        .flex_shrink_0()
+}
+pub fn icon(name: &'static str, theme: Theme) -> Svg {
+    gpui::svg()
+        .path(name)
+        .size(px(18.))
+        .text_color(rgb(theme.muted))
+}
+pub fn provider_mark(provider: Provider, dark: bool) -> Div {
+    div()
+        .size(px(38.))
+        .rounded(px(11.))
+        .bg(rgb(tint(provider, dark)))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            gpui::svg()
+                .path(provider.key())
+                .size(px(23.))
+                .text_color(rgb(color(provider))),
+        )
+}
+
+pub struct Assets;
+impl gpui::AssetSource for Assets {
+    fn load(&self, path: &str) -> anyhow::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        let shape = match path {
+            "overview" => {
+                "<rect x='3' y='3' width='7' height='7' rx='1.5'/><rect x='14' y='3' width='7' height='7' rx='1.5'/><rect x='3' y='14' width='7' height='7' rx='1.5'/><rect x='14' y='14' width='7' height='7' rx='1.5'/>"
+            }
+            "activity" => "<path d='M3 12h4l3-7 4 14 3-7h4'/>",
+            "limits" => "<circle cx='12' cy='12' r='9'/><path d='M12 7v5l4 2'/>",
+            "connections" => "<path d='M8 3v5m8-5v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4'/>",
+            "settings" => {
+                "<path d='M4 7h16M4 17h16'/><circle cx='9' cy='7' r='3' fill='white'/><circle cx='15' cy='17' r='3' fill='white'/>"
+            }
+            "refresh" => "<path d='M20 8a8 8 0 1 0 0 8M20 3v5h-5'/>",
+            "export" => "<path d='M12 3v12m-4-4 4 4 4-4M4 15v5h16v-5'/>",
+            "privacy" => {
+                "<path d='M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6'/><circle cx='12' cy='12' r='3'/>"
+            }
+            "theme" => "<path d='M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11z'/>",
+            "arrow" => "<path d='m9 5 7 7-7 7'/>",
+            "codex" => "<path d='m8 5-6 7 6 7m8-14 6 7-6 7M14 3l-4 18'/>",
+            "claude" => {
+                "<path d='M12 2v20M2 12h20M5 5l14 14M5 19 19 5M8 3l8 18M3 8l18 8M3 16l18-8M8 21l8-18'/>"
+            }
+            "cursor" => "<path d='m5 3 14 9-7 2-3 7z'/>",
+            "brand" => "<path d='M4 16V8a4 4 0 0 1 8 0v8a4 4 0 0 0 8 0V8M4 12h16'/>",
+            _ => return Ok(None),
+        };
+        Ok(Some(std::borrow::Cow::Owned(format!("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'>{shape}</svg>").into_bytes())))
+    }
+    fn list(&self, _path: &str) -> anyhow::Result<Vec<SharedString>> {
+        Ok(vec![])
+    }
+}

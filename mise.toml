@@ -1,0 +1,24 @@
+[tools]
+rust = "1.97.1"
+
+[tasks.dev]
+run = "cargo run --bin open-usage"
+
+[tasks.demo]
+run = "cargo run --bin open-usage -- --demo"
+
+[tasks.check]
+run = "cargo check --all-targets"
+
+[tasks.test]
+run = "cargo test --no-default-features"
+
+[tasks.lint]
+run = "cargo clippy --all-targets -- -D warnings"
+
+[tasks.build]
+run = "cargo build --release --bin open-usage"
+
+[tasks.package]
+run = "cargo run --bin package"
+
