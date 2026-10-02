@@ -8,7 +8,6 @@ use gpui::{div, prelude::*, px, rgb, *};
 use open_usage::{
     analytics::{self, Period},
     config::Config,
-    demo,
     model::{Provider, Snapshot},
     providers,
     store::Store,
@@ -61,7 +60,6 @@ enum UiAction {
     Online,
     Privacy,
     Dark,
-    Demo,
     Compact,
     Quit,
     Metric(bool),
@@ -77,11 +75,14 @@ enum UiAction {
     CloseDetail,
 }
 
+enum RefreshMsg {
+    Update(Snapshot),
+    Done(Result<Snapshot, String>),
+}
+
 pub struct Dashboard {
     config: Config,
     live: Snapshot,
-    example: Snapshot,
-    demo: bool,
     page: Page,
     period: Period,
     provider: Option<Provider>,
@@ -92,8 +93,8 @@ pub struct Dashboard {
     tray_attempted: bool,
     tray_error: Option<String>,
     last_minute: Instant,
-    receiver: Receiver<Result<Snapshot, String>>,
-    sender: Sender<Result<Snapshot, String>>,
+    receiver: Receiver<RefreshMsg>,
+    sender: Sender<RefreshMsg>,
     last_refresh: Instant,
     focus: FocusHandle,
     toast: Option<(String, Instant)>,
@@ -105,7 +106,7 @@ pub struct Dashboard {
 }
 
 impl Dashboard {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>, demo: bool) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (sender, receiver) = mpsc::channel();
         let (config, error) = match Config::load() {
             Ok(config) => (config, None),
@@ -119,6 +120,7 @@ impl Dashboard {
         for provider in &mut live.providers {
             provider.stale = true;
         }
+        open_usage::pricing::start();
         sync_components(config.dark, window, cx);
         let focus = cx.focus_handle();
         window.focus(&focus);
@@ -138,8 +140,6 @@ impl Dashboard {
         let mut view = Self {
             config,
             live,
-            example: demo::snapshot(),
-            demo,
             page: Page::Overview,
             period: Period::Month,
             provider: None,
@@ -161,9 +161,7 @@ impl Dashboard {
             activity_page: 0,
             detail: None,
         };
-        if !demo {
-            view.refresh(cx);
-        }
+        view.refresh(cx);
         cx.spawn_in(window, async move |view, cx| {
             loop {
                 cx.background_executor()
@@ -181,7 +179,7 @@ impl Dashboard {
         view
     }
     fn data(&self) -> &Snapshot {
-        if self.demo { &self.example } else { &self.live }
+        &self.live
     }
     fn theme(&self) -> Theme {
         Theme::new(self.config.dark)
@@ -211,11 +209,6 @@ impl Dashboard {
         cx.notify();
     }
     fn refresh(&mut self, cx: &mut Context<Self>) {
-        if self.demo {
-            self.example = demo::snapshot();
-            cx.notify();
-            return;
-        }
         if self.refreshing {
             self.pending_refresh = true;
             return;
@@ -226,12 +219,17 @@ impl Dashboard {
         let previous = self.live.clone();
         let sender = self.sender.clone();
         std::thread::spawn(move || {
-            let result = std::panic::catch_unwind(|| providers::collect(&config, &previous));
+            let sender_done = sender.clone();
+            let result = std::panic::catch_unwind(|| {
+                providers::collect_with(&config, &previous, |snapshot| {
+                    let _ = sender.send(RefreshMsg::Update(snapshot.clone()));
+                })
+            });
             let result = match result {
                 Ok(result) => result.map_err(|error| error.to_string()),
                 Err(_) => Err("Usage scan stopped unexpectedly. Refresh to retry.".into()),
             };
-            let _ = sender.send(result);
+            let _ = sender_done.send(RefreshMsg::Done(result));
         });
         cx.notify();
     }
@@ -256,26 +254,33 @@ impl Dashboard {
                 }
             }
         }
-        while let Ok(result) = self.receiver.try_recv() {
-            self.refreshing = false;
-            match result {
-                Ok(snapshot) => self.live = snapshot,
-                Err(error) => self.message(error, cx),
+        while let Ok(message) = self.receiver.try_recv() {
+            match message {
+                RefreshMsg::Update(snapshot) => self.live = snapshot,
+                RefreshMsg::Done(result) => {
+                    self.refreshing = false;
+                    match result {
+                        Ok(snapshot) => self.live = snapshot,
+                        Err(error) => self.message(error, cx),
+                    }
+                    if self.pending_refresh {
+                        self.pending_refresh = false;
+                        self.refresh(cx);
+                    }
+                }
             }
             self.update_tray();
             cx.notify();
-            if self.pending_refresh {
-                self.pending_refresh = false;
-                self.refresh(cx);
-            }
+        }
+        if open_usage::pricing::take_updated() {
+            cx.notify();
         }
         if self.last_minute.elapsed() >= Duration::from_secs(60) {
             self.last_minute = Instant::now();
             self.update_tray();
             cx.notify();
         }
-        if !self.demo
-            && !self.refreshing
+        if !self.refreshing
             && self.last_refresh.elapsed() >= Duration::from_secs(self.config.refresh_seconds)
         {
             self.refresh(cx);
@@ -367,13 +372,29 @@ impl Dashboard {
             .map(|cost| self.money(cost))
             .unwrap_or_else(|| "—".into())
     }
+    fn cost_caption(&self, totals: &analytics::Totals) -> String {
+        if totals.reported_rows + totals.estimated_rows > 0 {
+            return totals.cost_note().into();
+        }
+        match open_usage::pricing::state() {
+            open_usage::pricing::RateState::Loading => "Loading model rates".into(),
+            open_usage::pricing::RateState::Unavailable => "Model rates unavailable".into(),
+            open_usage::pricing::RateState::Ready => "No public rate".into(),
+        }
+    }
+    fn event_cost(&self, record: &open_usage::model::UsageRecord) -> (String, &'static str) {
+        match analytics::record_cost(record) {
+            Some((cost, false)) => (self.money(cost), "From the account"),
+            Some((cost, true)) => (self.money(cost), "Public API rate"),
+            None => ("—".into(), "No public rate"),
+        }
+    }
     fn update_tray(&self) {
         if let Some(tray) = &self.tray {
             let analysis =
                 analytics::analyze(self.data(), &self.config, Period::Today, None, Utc::now());
             let mut tooltip = format!(
-                "Open Usage{}\n{} tokens today",
-                if self.demo { " · Example" } else { "" },
+                "Open Usage\n{} tokens today",
                 self.number(analysis.totals.tokens.total())
             );
             for status in self.visible_accounts() {
@@ -462,11 +483,7 @@ impl Dashboard {
             UiAction::Export => {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter("CSV", &["csv"])
-                    .set_file_name(if self.demo {
-                        "example-usage.csv"
-                    } else {
-                        "usage.csv"
-                    })
+                    .set_file_name("usage.csv")
                     .save_file()
                 {
                     match analytics::export_csv(
@@ -495,15 +512,6 @@ impl Dashboard {
                 self.config.dark = !self.config.dark;
                 sync_components(self.config.dark, window, cx);
                 self.save(cx);
-            }
-            UiAction::Demo => {
-                self.demo = !self.demo;
-                self.detail = None;
-                self.activity_page = 0;
-                if !self.demo {
-                    self.refresh(cx);
-                }
-                self.update_tray();
             }
             UiAction::Compact => {
                 self.compact = !self.compact;
@@ -731,7 +739,7 @@ impl Render for Dashboard {
                         .bottom(px(22.))
                         .right(px(24.))
                         .max_w(px(520.))
-                        .rounded(px(12.))
+                        .rounded(px(6.))
                         .bg(rgb(theme.ink))
                         .text_color(rgb(theme.panel))
                         .p(px(14.))

@@ -26,16 +26,16 @@ impl Dashboard {
                     .gap(px(10.))
                     .child(
                         div()
-                            .size(px(24.))
-                            .rounded(px(5.))
-                            .bg(rgb(theme.accent))
+                            .size(px(22.))
+                            .rounded(px(4.))
+                            .bg(rgb(theme.ink))
                             .flex()
                             .items_center()
                             .justify_center()
                             .child(
                                 icon("brand", theme)
-                                    .size(px(19.))
-                                    .text_color(rgb(theme.panel)),
+                                    .size(px(15.))
+                                    .text_color(rgb(theme.sidebar)),
                             ),
                     )
                     .child(title("Open Usage", theme).text_size(px(15.))),
@@ -77,7 +77,7 @@ impl Dashboard {
                             .gap(px(7.))
                             .child(div().size(px(6.)).rounded_full().bg(rgb(
                                 if self.config.online {
-                                    0x328c80
+                                    theme.ink
                                 } else {
                                     theme.muted
                                 },
@@ -95,16 +95,9 @@ impl Dashboard {
                             ),
                     )
                     .child(
-                        label(
-                            if self.demo {
-                                "Example workspace"
-                            } else {
-                                concat!("v", env!("CARGO_PKG_VERSION"))
-                            },
-                            theme,
-                        )
-                        .mt(px(6.))
-                        .text_size(px(11.)),
+                        label(concat!("v", env!("CARGO_PKG_VERSION")), theme)
+                            .mt(px(6.))
+                            .text_size(px(11.)),
                     ),
             )
     }
@@ -115,9 +108,9 @@ impl Dashboard {
             .id(SharedString::from(format!("nav-{}", page.title())))
             .focusable()
             .tab_index(0)
-            .h(px(32.))
-            .rounded(px(6.))
-            .px(px(12.))
+            .h(px(30.))
+            .rounded(px(4.))
+            .px(px(10.))
             .flex()
             .items_center()
             .gap(px(10.))
@@ -125,7 +118,7 @@ impl Dashboard {
             .bg(rgb(if active { theme.wash } else { theme.sidebar }))
             .text_color(rgb(if active { theme.accent } else { theme.muted }))
             .font_weight(if active {
-                FontWeight::SEMIBOLD
+                FontWeight::MEDIUM
             } else {
                 FontWeight::NORMAL
             })
@@ -159,7 +152,7 @@ impl Dashboard {
             .h(px(52.))
             .flex_shrink_0()
             .px(px(24.))
-            .bg(rgb(theme.panel))
+            .bg(rgb(theme.bg))
             .border_b_1()
             .border_color(rgb(theme.line))
             .flex()
@@ -204,8 +197,7 @@ impl Dashboard {
                 cx,
             ))
     }
-    fn page_body(&self, cx: &Context<Self>) -> Div {
-        let theme = self.theme();
+    fn page_body(&self, _cx: &Context<Self>) -> Div {
         div()
             .w_full()
             .max_w(px(1200.))
@@ -213,29 +205,6 @@ impl Dashboard {
             .flex()
             .flex_col()
             .gap(px(16.))
-            .when(self.demo, |body| {
-                body.child(
-                    div()
-                        .rounded(px(6.))
-                        .border_1()
-                        .border_color(rgb(theme.line))
-                        .bg(rgb(theme.panel))
-                        .px(px(14.))
-                        .py(px(9.))
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .child(label("Example data", theme))
-                        .child(self.button(
-                            "exit-example",
-                            "Use my accounts",
-                            None,
-                            false,
-                            UiAction::Demo,
-                            cx,
-                        )),
-                )
-            })
     }
     fn periods(&self, cx: &Context<Self>) -> Div {
         let theme = self.theme();
@@ -319,12 +288,8 @@ impl Dashboard {
             .px(px(7.))
             .py(px(3.))
             .text_size(px(11.))
-            .text_color(rgb(if active { 0x328c80 } else { theme.muted }))
-            .bg(rgb(if active {
-                if self.config.dark { 0x16372f } else { 0xebf4f2 }
-            } else {
-                theme.bg
-            }))
+            .text_color(rgb(if active { theme.ink } else { theme.muted }))
+            .bg(rgb(if active { theme.wash } else { theme.bg }))
             .child(text.to_owned())
     }
     pub(super) fn overview(&self, cx: &Context<Self>) -> Div {
@@ -377,6 +342,7 @@ impl Dashboard {
                     ),
             );
         }
+        let cost_note = self.cost_caption(&analysis.totals);
         let summary = div()
             .flex()
             .gap(px(32.))
@@ -387,13 +353,9 @@ impl Dashboard {
                 self.period.label(),
             ))
             .child(self.metric(
-                "Reported cost",
+                "Cost",
                 self.spend(&analysis.totals),
-                if analysis.totals.reported_rows == 0 {
-                    "No cost reported"
-                } else {
-                    "From account usage records"
-                },
+                &cost_note,
             ))
             .child(self.metric(
                 "Sessions",
@@ -415,7 +377,7 @@ impl Dashboard {
                     .border_color(rgb(theme.line))
                     .child(label("Account", theme).flex_1().min_w(px(180.)))
                     .child(label("Tokens", theme).w(px(100.)))
-                    .child(label("Reported cost", theme).w(px(130.)))
+                    .child(label("Cost", theme).w(px(130.)))
                     .child(label("Allowance", theme).w(px(250.)))
                     .child(div().w(px(60.))),
             )
@@ -437,7 +399,7 @@ impl Dashboard {
                     div()
                         .h_full()
                         .w(relative(tokens as f32 / total_tokens))
-                        .bg(rgb(color(status.provider)))
+                        .bg(rgb(color(status.provider, self.config.dark)))
                 }))
             });
         body.child(summary)
@@ -493,9 +455,7 @@ impl Dashboard {
     fn account_row(&self, status: &ProviderStatus, totals: &Totals, cx: &Context<Self>) -> Div {
         let theme = self.theme();
         let provider = status.provider;
-        let reading = if self.demo {
-            "Example"
-        } else if !status.stale {
+        let reading = if !status.stale {
             "Live"
         } else if status.checked_at.is_some() {
             "Cached"
@@ -547,7 +507,7 @@ impl Dashboard {
                                 div()
                                     .flex()
                                     .mt(px(7.))
-                                    .child(self.badge(reading, !self.demo && !status.stale)),
+                                    .child(self.badge(reading, !status.stale)),
                             ),
                     ),
             )
@@ -572,16 +532,9 @@ impl Dashboard {
                             .child(self.spend(totals)),
                     )
                     .child(
-                        label(
-                            if totals.reported_rows == 0 {
-                                "Not reported".into()
-                            } else {
-                                format!("{} recorded events", totals.reported_rows)
-                            },
-                            theme,
-                        )
-                        .text_size(px(11.))
-                        .mt(px(5.)),
+                        label(self.cost_caption(totals), theme)
+                            .text_size(px(11.))
+                            .mt(px(5.)),
                     ),
             )
             .child(
@@ -634,11 +587,11 @@ impl Dashboard {
         let bar_color = if expired || stale {
             theme.muted
         } else if limit.remaining() <= 10.0 {
-            0xc34c4c
+            0xe03e3e
         } else if limit.remaining() <= 25.0 {
-            0xb57c27
+            0xcb912f
         } else {
-            color(provider)
+            color(provider, self.config.dark)
         };
         div()
             .flex()
@@ -724,7 +677,7 @@ impl Dashboard {
                         if bucket.cost_rows.iter().sum::<usize>() > 0 {
                             self.money(bucket.cost.iter().sum())
                         } else {
-                            "Not reported".into()
+                            "No public rate".into()
                         }
                     }
                 )
@@ -758,7 +711,7 @@ impl Dashboard {
                     ))
                     .child(self.button(
                         "chart-cost",
-                        "Reported cost",
+                        "Cost",
                         None,
                         !self.token_chart,
                         UiAction::Metric(false),
@@ -798,12 +751,10 @@ impl Dashboard {
                                 "Values hidden"
                             } else if self.token_chart {
                                 "No token usage in this period"
+                            } else if analysis.totals.spend().is_some() {
+                                "Cost is $0.00"
                             } else {
-                                if analysis.totals.reported_rows > 0 {
-                                    "Reported usage cost is $0.00"
-                                } else {
-                                    "No reported cost in this period"
-                                }
+                                "No priced usage in this period"
                             },
                             theme,
                         ))
@@ -832,7 +783,7 @@ impl Dashboard {
                                         .h(px((values[provider.index()] / maximum * 172.0) as f32))
                                         .w_full()
                                         .rounded(px(3.))
-                                        .bg(rgb(color(provider)))
+                                        .bg(rgb(color(provider, self.config.dark)))
                                 }))
                         }))
                     }),
@@ -872,18 +823,15 @@ impl Dashboard {
                         .flex()
                         .items_center()
                         .gap(px(6.))
-                        .child(dot(status.provider))
+                        .child(dot(status.provider, self.config.dark))
                         .child(label(status.provider.name(), theme).text_size(px(12.)))
-                        .child(
-                            div()
-                                .font_family(mono_font())
-                                .text_size(px(12.))
-                                .child(if self.token_chart {
-                                    self.number(totals.tokens.total())
-                                } else {
-                                    self.spend(totals)
-                                }),
-                        )
+                        .child(div().font_family(mono_font()).text_size(px(12.)).child(
+                            if self.token_chart {
+                                self.number(totals.tokens.total())
+                            } else {
+                                self.spend(totals)
+                            },
+                        ))
                 }),
             ))
     }
@@ -898,7 +846,7 @@ impl Dashboard {
         );
         self.page_body(cx).child(self.toolbar(cx,true))
             .child(panel(theme).p(px(0.)).overflow_hidden().child(div().px(px(18.)).py(px(16.)).flex().justify_between().child(title("Model usage",theme)).child(label(format!("{} models",analysis.models.len()),theme)))
-                .child(self.model_row("Model","Account","Tokens","Cache read","Reported cost",true))
+                .child(self.model_row("Model","Account","Tokens","Cache read","Cost",true))
                 .when(analysis.models.is_empty(),|table|table.child(div().p(px(28.)).child(label("No model usage in this period",theme))))
                 .children(analysis.models.iter().map(|row|self.model_row(&row.model,row.provider.name(),&self.number(row.totals.tokens.total()),&self.number(row.totals.tokens.cache_read),&self.spend(&row.totals),false))))
             .child(label("Models are grouped by the account that recorded the usage. No model pricing is applied.",theme).text_size(px(12.)))
@@ -1076,14 +1024,7 @@ impl Dashboard {
                             )),
                     )
                     .child(self.activity_columns(
-                        [
-                            "Time",
-                            "Account",
-                            "Model",
-                            "Project",
-                            "Tokens",
-                            "Reported cost",
-                        ],
+                        ["Time", "Account", "Model", "Project", "Tokens", "Cost"],
                         true,
                     ))
                     .when(records.is_empty(), |table| {
@@ -1095,6 +1036,7 @@ impl Dashboard {
                     })
                     .children(records.iter().skip(start).take(40).map(|record| {
                         let id = record.id.clone();
+                        let cost = self.event_cost(record).0;
                         div()
                             .id(SharedString::from(format!("record-{id}")))
                             .cursor_pointer()
@@ -1115,10 +1057,7 @@ impl Dashboard {
                                             &record.project
                                         },
                                         &self.number(record.tokens.total()),
-                                        &record
-                                            .reported_cost
-                                            .map(|cost| self.money(cost))
-                                            .unwrap_or_else(|| "—".into()),
+                                        &cost,
                                     ],
                                     false,
                                 ),
@@ -1220,20 +1159,10 @@ impl Dashboard {
                     .flex()
                     .gap(px(18.))
                     .child(self.metric("Account", record.provider.name().into(), &record.model))
-                    .child(
-                        self.metric(
-                            "Reported cost",
-                            record
-                                .reported_cost
-                                .map(|cost| self.money(cost))
-                                .unwrap_or_else(|| "—".into()),
-                            if record.reported_cost.is_some() {
-                                "Provider reported"
-                            } else {
-                                "Not reported"
-                            },
-                        ),
-                    ),
+                    .child({
+                        let (amount, note) = self.event_cost(record);
+                        self.metric("Cost", amount, note)
+                    }),
             )
             .child(
                 div()
@@ -1326,7 +1255,7 @@ impl Dashboard {
             .child(panel(theme).child(title("Other data locations",theme))
                 .child(label("Add an existing history folder or a Cursor usage export.",theme).text_size(px(12.)).mt(px(6.)))
                 .child(div().mt(px(14.)).flex().gap(px(8.))
-                    .child(self.button("manual-codex","Codex folder",None,false,UiAction::AddHome(Provider::Codex),cx))
+                    .child(self.button("manual-codex","ChatGPT folder",None,false,UiAction::AddHome(Provider::Codex),cx))
                     .child(self.button("manual-claude","Claude Code folder",None,false,UiAction::AddHome(Provider::Claude),cx))
                     .child(self.button("manual-cursor","Cursor CSV",None,false,UiAction::ImportCursor,cx))))
     }
@@ -1339,13 +1268,11 @@ impl Dashboard {
             .child(panel(theme).child(title("Data",theme))
                 .child(div().mt(px(20.)).flex().items_center().justify_between().child(label("Automatic refresh",theme))
                     .child(div().flex().gap(px(6.)).children(open_usage::config::REFRESH_INTERVALS.into_iter().map(|seconds|self.button(format!("refresh-{seconds}"),if seconds==3600 { "1 hour".into() } else { format!("{} min",seconds/60) },None,self.config.refresh_seconds==seconds,UiAction::Interval(seconds),cx)))))
-                .child(label("Costs come from account usage. Token pricing and subscription fees are not calculated.",theme).mt(px(20.)).text_size(px(12.))))
+                .child(label("Account-reported cost is used when a provider sends one. Otherwise the cost is the public API rate for that model. Subscription fees are not included.",theme).mt(px(20.)).text_size(px(12.))))
             .child(panel(theme).child(div().flex().justify_between().child(title(if cfg!(target_os="macos"){"Menu bar"}else{"System tray"},theme)).child(self.badge(if self.tray.is_some(){"Active"}else if self.tray_attempted{"Unavailable"}else{"Starting"},self.tray.is_some())))
                 .child(label(if self.tray.is_some(){"Click for quick view. Right-click for refresh and quit. Closing the window keeps usage tracking active."}else{"Closing the window quits the app when the system tray is unavailable."},theme).mt(px(12.)))
                 .when_some(self.tray_error.as_ref(),|panel,error|panel.child(label(error.clone(),theme).mt(px(10.)).text_size(px(12.))))
                 .child(div().flex().gap(px(8.)).mt(px(16.)).child(self.button("settings-quick","Quick view",Some("overview"),false,UiAction::Compact,cx)).child(self.button("settings-quit","Quit",None,false,UiAction::Quit,cx))))
-            .child(panel(theme).flex().items_center().justify_between().child(div().child(title("Example workspace",theme)).child(label("Preview with labeled sample accounts",theme).text_size(px(12.)).mt(px(5.))))
-                .child(self.button("settings-example",if self.demo{"Use my accounts"}else{"Show example"},None,self.demo,UiAction::Demo,cx)))
     }
     fn preference_row(&self, name: &str, description: &str, control: impl IntoElement) -> Div {
         let theme = self.theme();
@@ -1415,14 +1342,7 @@ impl Dashboard {
                             .items_center()
                             .justify_between()
                             .mb(px(16.))
-                            .child(label(
-                                if self.demo {
-                                    "Today · Example data"
-                                } else {
-                                    "Today"
-                                },
-                                theme,
-                            ))
+                            .child(label("Today", theme))
                             .child(label(
                                 format!("{} tokens", self.number(analysis.totals.tokens.total())),
                                 theme,

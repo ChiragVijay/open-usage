@@ -1,6 +1,7 @@
 use crate::{
     config::Config,
     model::{Provider, Snapshot, Tokens, UsageRecord},
+    pricing,
 };
 use anyhow::Result;
 use chrono::{DateTime, Duration, Local, TimeZone, Utc};
@@ -100,13 +101,28 @@ pub struct Totals {
     pub tokens: Tokens,
     pub reported: f64,
     pub reported_rows: usize,
+    pub estimated: f64,
+    pub estimated_rows: usize,
     pub events: usize,
     pub sessions: usize,
 }
 impl Totals {
-    /// None means the account did not report cost, rather than zero spend.
-    pub fn spend(&self) -> Option<f64> {
+    /// Reported account cost only. None means the provider sent no dollar amount.
+    pub fn reported_spend(&self) -> Option<f64> {
         (self.reported_rows > 0).then_some(self.reported)
+    }
+    /// Reported cost plus API-equivalent estimates for rows the provider left unpriced.
+    pub fn spend(&self) -> Option<f64> {
+        let rows = self.reported_rows + self.estimated_rows;
+        (rows > 0).then_some(self.reported + self.estimated)
+    }
+    pub fn cost_note(&self) -> &'static str {
+        match (self.reported_rows, self.estimated_rows) {
+            (0, 0) => "No public rate",
+            (_, 0) => "From the account",
+            (0, _) => "Public API rates",
+            _ => "Account and API rates",
+        }
     }
     pub fn cache_percent(&self) -> f64 {
         let total = self.tokens.total();
@@ -148,15 +164,28 @@ pub fn matches(
         && record.timestamp <= now
         && provider.is_none_or(|p| p == record.provider)
 }
-fn add(totals: &mut Totals, record: &UsageRecord) {
-    totals.tokens.add(&record.tokens);
-    totals.events += 1;
+/// Reported account cost, or an API-rate estimate when the provider sent none.
+/// The bool is true when the amount is estimated.
+pub fn record_cost(record: &UsageRecord) -> Option<(f64, bool)> {
     if let Some(cost) = record
         .reported_cost
         .filter(|cost| cost.is_finite() && *cost >= 0.0)
     {
-        totals.reported += cost;
-        totals.reported_rows += 1;
+        return Some((cost, false));
+    }
+    pricing::estimate(record).map(|cost| (cost, true))
+}
+fn add(totals: &mut Totals, record: &UsageRecord) {
+    totals.tokens.add(&record.tokens);
+    totals.events += 1;
+    if let Some((cost, estimated)) = record_cost(record) {
+        if estimated {
+            totals.estimated += cost;
+            totals.estimated_rows += 1;
+        } else {
+            totals.reported += cost;
+            totals.reported_rows += 1;
+        }
     }
 }
 pub fn analyze(
@@ -212,10 +241,7 @@ pub fn analyze(
         {
             bucket.tokens[record.provider.index()] =
                 bucket.tokens[record.provider.index()].saturating_add(record.tokens.total());
-            if let Some(cost) = record
-                .reported_cost
-                .filter(|cost| cost.is_finite() && *cost >= 0.0)
-            {
+            if let Some((cost, _)) = record_cost(record) {
                 bucket.cost[record.provider.index()] += cost;
                 bucket.cost_rows[record.provider.index()] += 1;
             }
@@ -257,6 +283,7 @@ pub fn export_csv(
         "cache_read_tokens",
         "cache_write_tokens",
         "reported_usd",
+        "api_rate_usd",
     ])?;
     let mut count = 0;
     for record in &snapshot.records {
@@ -279,6 +306,10 @@ pub fn export_csv(
                 .reported_cost
                 .filter(|cost| cost.is_finite() && *cost >= 0.0)
                 .map(|p| format!("{p:.6}"))
+                .unwrap_or_default(),
+            record_cost(record)
+                .filter(|(_, estimated)| *estimated)
+                .map(|(cost, _)| format!("{cost:.6}"))
                 .unwrap_or_default(),
         ])?;
         count += 1;

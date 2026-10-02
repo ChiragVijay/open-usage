@@ -14,46 +14,51 @@ pub struct Theme {
 }
 impl Theme {
     pub fn new(dark: bool) -> Self {
+        // Notion's warm neutrals: white page, stone sidebar, ink #37352f.
         if dark {
             Self {
-                bg: 0x17181b,
-                panel: 0x1d1e22,
-                sidebar: 0x1b1c20,
-                ink: 0xe8e9ed,
-                muted: 0x9c9da7,
-                line: 0x303137,
-                wash: 0x2a293e,
-                accent: 0xa09af4,
+                bg: 0x191919,
+                panel: 0x202020,
+                sidebar: 0x202020,
+                ink: 0xe8e7e4,
+                muted: 0x9b9a97,
+                line: 0x2f2f2f,
+                wash: 0x2c2c2b,
+                accent: 0xe8e7e4,
             }
         } else {
             Self {
-                bg: 0xfafafa,
+                bg: 0xffffff,
                 panel: 0xffffff,
-                sidebar: 0xf6f7f9,
-                ink: 0x24252b,
-                muted: 0x757681,
-                line: 0xe4e5ea,
-                wash: 0xefeffb,
-                accent: 0x635bd3,
+                sidebar: 0xf7f7f5,
+                ink: 0x37352f,
+                muted: 0x787774,
+                line: 0xe9e9e7,
+                wash: 0xefefed,
+                accent: 0x37352f,
             }
         }
     }
 }
-pub fn color(provider: Provider) -> u32 {
-    match provider {
-        Provider::Codex => 0x10a37f,
-        Provider::Claude => 0xd97757,
-        Provider::Cursor => 0x8a8f98,
+/// Series colors from Notion's tag palette, so charts stay distinct without shouting.
+pub fn color(provider: Provider, dark: bool) -> u32 {
+    match (provider, dark) {
+        (Provider::Codex, false) => 0x337ea9,
+        (Provider::Claude, false) => 0xd9730d,
+        (Provider::Cursor, false) => 0x9065b0,
+        (Provider::Codex, true) => 0x529cca,
+        (Provider::Claude, true) => 0xe08a3c,
+        (Provider::Cursor, true) => 0xa484c7,
     }
 }
 pub fn tint(provider: Provider, dark: bool) -> u32 {
     match (provider, dark) {
-        (Provider::Codex, false) => 0xe7f6f1,
-        (Provider::Claude, false) => 0xfbefea,
-        (Provider::Cursor, false) => 0xf0f1f3,
-        (Provider::Codex, true) => 0x15302a,
-        (Provider::Claude, true) => 0x3a2620,
-        (Provider::Cursor, true) => 0x2a2c31,
+        (Provider::Codex, false) => 0xe7f3f8,
+        (Provider::Claude, false) => 0xfadec9,
+        (Provider::Cursor, false) => 0xe8deee,
+        (Provider::Codex, true) => 0x1c3a4c,
+        (Provider::Claude, true) => 0x4a3214,
+        (Provider::Cursor, true) => 0x3c2e4a,
     }
 }
 pub fn body_font() -> &'static str {
@@ -91,8 +96,8 @@ pub fn sync_components(dark: bool, window: &mut gpui::Window, cx: &mut gpui::App
     theme.font_family = body_font().into();
     theme.font_size = px(14.);
     theme.mono_font_family = mono_font().into();
-    theme.radius = px(6.);
-    theme.radius_lg = px(8.);
+    theme.radius = px(4.);
+    theme.radius_lg = px(6.);
     theme.shadow = false;
 }
 pub fn label(text: impl Into<SharedString>, theme: Theme) -> Div {
@@ -113,14 +118,14 @@ pub fn panel(theme: Theme) -> Div {
         .bg(rgb(theme.panel))
         .border_1()
         .border_color(rgb(theme.line))
-        .rounded(px(6.))
+        .rounded(px(4.))
         .p(px(18.))
 }
-pub fn dot(provider: Provider) -> Div {
+pub fn dot(provider: Provider, dark: bool) -> Div {
     div()
         .size(px(7.))
         .rounded_full()
-        .bg(rgb(color(provider)))
+        .bg(rgb(color(provider, dark)))
         .flex_shrink_0()
 }
 pub fn icon(name: &'static str, theme: Theme) -> Svg {
@@ -130,13 +135,9 @@ pub fn icon(name: &'static str, theme: Theme) -> Svg {
         .text_color(rgb(theme.muted))
 }
 pub fn provider_mark(provider: Provider, dark: bool) -> Div {
-    let foreground = match provider {
-        Provider::Claude => 0xd97757,
-        _ => Theme::new(dark).ink,
-    };
     div()
-        .size(px(36.))
-        .rounded(px(8.))
+        .size(px(32.))
+        .rounded(px(4.))
         .bg(rgb(tint(provider, dark)))
         .flex()
         .items_center()
@@ -144,8 +145,8 @@ pub fn provider_mark(provider: Provider, dark: bool) -> Div {
         .child(
             gpui::svg()
                 .path(provider.key())
-                .size(px(26.))
-                .text_color(rgb(foreground)),
+                .size(px(22.))
+                .text_color(rgb(color(provider, dark))),
         )
 }
 

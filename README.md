@@ -1,18 +1,18 @@
 # Open Usage
 
-A native Rust + GPUI app for ChatGPT / Codex, Cursor, and Claude Code. It discovers available agents and account history on your machine, then shows tokens, reported costs, allowances, and reset times by account. Models have a separate page. Compact rows, quiet borders, and a header theme switch support light and dark mode.
+A native Rust + GPUI app for ChatGPT, Cursor, and Claude Code. It discovers available agents and account history on your machine, then shows tokens, cost, allowances, and reset times by account. Models have a separate page. Compact rows, quiet borders, and a header theme switch support light and dark mode.
 
-![Open Usage accounts with labeled example data](docs/images/dashboard.jpg)
+![Open Usage accounts](docs/images/dashboard.jpg)
 
-![Open Usage in dark mode with labeled example data](docs/images/dashboard-dark.jpg)
+![Open Usage in dark mode](docs/images/dashboard-dark.jpg)
 
 ## Accounting
 
-**There is no model pricing table or token-to-dollar estimate.** Costs come only from the account provider's usage history or export. A missing cost is shown as **— / Not reported**, never $0. Reported zero remains $0.
+A provider-reported dollar amount is used when the account sends one. ChatGPT session logs store tokens and no price, so those rows use public per-token API rates (input, output, cache read, and cache write) from LiteLLM's model table, the same source t3code prices against. The table is cached on this device and downloaded again once a day. That figure is an API-equivalent estimate, not a subscription invoice. A model with no public rate stays **—**. Reported zero remains $0.
 
 - Cursor dashboard history/CSV supplies reported usage cost. Claude models used through Cursor belong to the **Cursor account**. They do not imply a Claude subscription.
-- Codex local history supplies tokens; its account endpoint supplies allowances and reset times. A per-event dollar amount is not reported, so cost remains unavailable.
-- Claude Code's saved `costUSD` is used when present. Streaming message repetitions count once. Records without that field contribute tokens and no invented dollar value. Its account endpoint supplies allowances and reset times.
+- ChatGPT local history supplies tokens. Its account endpoint supplies allowances and reset times. Cost is the public API rate for the recorded model.
+- Claude Code's saved `costUSD` is used when present. Streaming message repetitions count once. Records without that field use the public API rate when the model is known. Its account endpoint supplies allowances and reset times.
 - Provider-reported usage cost can include usage covered by a plan. It is not a subscription invoice, and does not include the subscription fee.
 - The Models page keeps the account attached to each model. The same model used through two accounts remains two rows.
 - Codex cumulative counters and Claude streaming blocks are reconciled; cached input is counted once. Incomplete rows are retried. No missing tokens are estimated from conversation text.
@@ -27,12 +27,11 @@ Install Rust **1.97.1** or run `mise install`:
 
 ```sh
 cargo run --bin open-usage
-cargo run --bin open-usage -- --demo
 ```
 
 Windows requires Visual Studio Build Tools with Desktop development with C++ and a Windows SDK. macOS requires Xcode command-line tools and the macOS SDK. GPUI renders native GPU UI. Longbridge's `gpui-component` 0.5 supplies native controls compatible with GPUI 0.2.2; the application contains no webview or JavaScript runtime.
 
-Mise tasks: `dev`, `demo`, `check`, `test`, `lint`, `build`, `package`.
+Mise tasks: `dev`, `check`, `test`, `lint`, `build`, `package`.
 
 ## Connections
 
@@ -42,17 +41,15 @@ New configurations check existing signed-in accounts automatically. **Connection
 
 | Account | History | Allowances |
 | --- | --- | --- |
-| ChatGPT / Codex | `CODEX_HOME` or `~/.codex`, including archived sessions | Existing Codex ChatGPT login |
+| ChatGPT | `CODEX_HOME` or `~/.codex`, including archived sessions | Existing `codex login` |
 | Claude Code | `CLAUDE_CONFIG_DIR` or `~/.claude/projects`, including subagents | Claude Code OAuth credentials or macOS Keychain |
 | Cursor | Cursor dashboard API, up to 90 days, or a CSV export | Existing Cursor CLI/desktop login |
 
 **Add folder** accepts a provider home such as `.codex`. Additional folders contribute local history; live allowances use the first discoverable login for that provider. Cursor CSV replaces API history to avoid duplication and references the selected file in place.
 
-ChatGPT support means Codex usage associated with the ChatGPT account. Claude support means Claude Code. Cursor account history spans machines; Codex and Claude token histories reflect this device.
+ChatGPT support means Codex usage associated with the ChatGPT account. Claude support means Claude Code. Cursor account history spans machines; ChatGPT and Claude token histories reflect this device.
 
 Credentials are read only for fixed provider HTTPS endpoints and are never cached, exported, or logged. Requests contain authentication and usage-query parameters; **local history, tokens, session records, prompts, and conversations are never uploaded**. There is no analytics endpoint, cloud database, or external pricing download. macOS Keychain may display its own permission prompt. Expired logins require signing in again using the provider's app or CLI.
-
-Example mode is enabled explicitly by `--demo` or **Settings → Example workspace** and never writes example usage to the cache.
 
 ## Tray and menu bar
 
@@ -86,7 +83,7 @@ cargo run --no-default-features --bin usage -- --online --days 7
 cargo run --no-default-features --bin usage -- --offline --period 2h --json
 ```
 
-`--online` checks accounts for that invocation without changing preferences; `--offline` reads local history and cached account data. `--period` accepts `2h`, `24h`, `7d`, `30d`, `90d`, and `today`. `--days 1` means the past 24 hours. JSON schema **open-usage.v2** includes the selected period and exact start/end timestamps, account discovery status, summaries, allowances, tokens, models, and `reported_usage_cost_usd`. A missing reported cost is `null`. There are no estimate fields.
+`--online` checks accounts for that invocation without changing preferences; `--offline` reads local history and cached account data. `--period` accepts `2h`, `24h`, `7d`, `30d`, `90d`, and `today`. `--days 1` means the past 24 hours. JSON schema **open-usage.v2** includes the selected period and exact start/end timestamps, account discovery status, summaries, allowances, tokens, models, `reported_usage_cost_usd`, and `usage_cost_usd`. A missing reported cost is `null`. `usage_cost_usd` adds the LiteLLM estimate for rows the account did not price.
 
 Settings and the SQLite metadata cache live in `%LOCALAPPDATA%/open-usage` on Windows and `~/Library/Application Support/open-usage` on macOS. `OPEN_USAGE_DATA_DIR` redirects both for testing. Stored metadata includes source paths, tokens, timestamps and reported usage cost; credentials and conversations are excluded. There is no telemetry or hosted backend.
 
@@ -112,4 +109,4 @@ Windows compilation, the account dashboard, live Codex/Cursor reads, tray initia
 
 The bundled OpenAI, Claude, and Cursor SVG marks come from [OpenUsage's provider icon assets](https://github.com/robinebers/openusage/tree/ae49de04a2b7fc1b3cc334fcc1009276c46d82ad/Sources/OpenUsage/Resources/ProviderIcons). They render locally in account rows, Connections, Limits, and the quick view, with colors suited to each theme.
 
-[OpenUsage's pricing documentation](https://github.com/robinebers/openusage/blob/main/docs/pricing.md) describes estimates from dynamically refreshed pricing catalogs. [t3code's pricing implementation](https://github.com/pingdotgg/t3code/blob/54084ae1e6c32809db040e4fa571c80fdf2d8ae4/apps/server/src/usage/usagePricing.ts) prefers reported costs, then calculates API-equivalent estimates. This app uses reported amounts only; even dynamically fetched API rates would not establish your account's actual charges.
+[t3code's pricing implementation](https://github.com/pingdotgg/t3code/blob/a8927712f8b3338fa3c47a0c657b6e11d7e9aaec/apps/server/src/usage/usagePricing.ts) prefers a provider-reported cost, then prices tokens with LiteLLM's public model table. This app follows that order. The estimate is not a subscription invoice.

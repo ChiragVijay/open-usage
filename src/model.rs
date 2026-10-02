@@ -13,7 +13,7 @@ impl Provider {
     pub const ALL: [Self; 3] = [Self::Codex, Self::Claude, Self::Cursor];
     pub fn name(self) -> &'static str {
         match self {
-            Self::Codex => "Codex",
+            Self::Codex => "ChatGPT",
             Self::Claude => "Claude",
             Self::Cursor => "Cursor",
         }
@@ -27,7 +27,7 @@ impl Provider {
     }
     pub fn account_name(self) -> &'static str {
         match self {
-            Self::Codex => "ChatGPT / Codex",
+            Self::Codex => "ChatGPT",
             Self::Claude => "Claude Code",
             Self::Cursor => "Cursor",
         }

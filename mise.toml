@@ -4,9 +4,6 @@ rust = "1.97.1"
 [tasks.dev]
 run = "cargo run --bin open-usage"
 
-[tasks.demo]
-run = "cargo run --bin open-usage -- --demo"
-
 [tasks.check]
 run = "cargo check --all-targets"
 

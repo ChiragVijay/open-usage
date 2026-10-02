@@ -6,7 +6,6 @@ use gpui::{
 gpui::actions!(open_usage, [Quit]);
 
 fn main() {
-    let demo = std::env::args().any(|arg| arg == "--demo");
     Application::new()
         .with_assets(ui::assets())
         .run(move |cx: &mut App| {
@@ -30,7 +29,7 @@ fn main() {
                     ..Default::default()
                 },
                 move |window, cx| {
-                    let dashboard = cx.new(|cx| ui::Dashboard::new(window, cx, demo));
+                    let dashboard = cx.new(|cx| ui::Dashboard::new(window, cx));
                     cx.new(|cx| gpui_component::Root::new(dashboard, window, cx))
                 },
             );

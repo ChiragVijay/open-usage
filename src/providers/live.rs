@@ -200,7 +200,7 @@ pub fn cursor_limits(body: &Value) -> Vec<LimitWindow> {
     .collect()
 }
 
-pub fn fetch(provider: Provider, homes: &[PathBuf]) -> Result<LiveData> {
+pub fn fetch(provider: Provider, homes: &[PathBuf], history: bool) -> Result<LiveData> {
     let client = Client::builder()
         .timeout(Duration::from_secs(12))
         .connect_timeout(Duration::from_secs(5))
@@ -214,7 +214,7 @@ pub fn fetch(provider: Provider, homes: &[PathBuf]) -> Result<LiveData> {
                 .find_map(|home| read(&home.join("auth.json")))
                 .context("Sign in with `codex login` to read ChatGPT limits")?;
             let access = token(&auth, "/tokens/access_token")
-                .context("Codex API-key logins do not expose ChatGPT subscription limits")?;
+                .context("An API-key login does not include ChatGPT subscription limits")?;
             let mut request = client
                 .get("https://chatgpt.com/backend-api/wham/usage")
                 .bearer_auth(&access)
@@ -225,7 +225,7 @@ pub fn fetch(provider: Provider, homes: &[PathBuf]) -> Result<LiveData> {
             let body = response(request, provider)?;
             let limits = codex_limits(&body);
             if limits.is_empty() {
-                bail!("This Codex account did not report subscription limits");
+                bail!("This ChatGPT account did not report subscription limits");
             }
             Ok(LiveData {
                 limits,
@@ -293,7 +293,11 @@ pub fn fetch(provider: Provider, homes: &[PathBuf]) -> Result<LiveData> {
                     .json(&json!({})),
                 provider,
             )?;
-            let records = cursor_history(&client, &access)?;
+            let records = if history {
+                cursor_history(&client, &access)?
+            } else {
+                Vec::new()
+            };
             Ok(LiveData {
                 limits: cursor_limits(&body),
                 plan: token(&body, "/membershipType").or_else(|| token(&body, "/plan")),
