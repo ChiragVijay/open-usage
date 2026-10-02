@@ -422,7 +422,26 @@ impl Dashboard {
             .children(accounts.iter().map(|status| {
                 self.account_row(status, &analysis.providers[status.provider.index()], cx)
             }));
+        let total_tokens = analysis.totals.tokens.total().max(1) as f32;
+        let share = div()
+            .h(px(8.))
+            .w_full()
+            .rounded_full()
+            .overflow_hidden()
+            .bg(rgb(theme.line))
+            .flex()
+            .gap(px(2.))
+            .when(!self.config.privacy, |bar| {
+                bar.children(accounts.iter().map(|status| {
+                    let tokens = analysis.providers[status.provider.index()].tokens.total();
+                    div()
+                        .h_full()
+                        .w(relative(tokens as f32 / total_tokens))
+                        .bg(rgb(color(status.provider)))
+                }))
+            });
         body.child(summary)
+            .child(share)
             .child(table)
             .child(self.chart(&analysis, cx))
             .child(
@@ -762,7 +781,7 @@ impl Dashboard {
                 div()
                     .id("daily-plot")
                     .mt(px(20.))
-                    .h(px(120.))
+                    .h(px(180.))
                     .border_b_1()
                     .border_color(rgb(theme.line))
                     .flex()
@@ -791,6 +810,7 @@ impl Dashboard {
                     })
                     .when(!self.config.privacy && maximum > 0.0, |plot| {
                         plot.children(values.iter().enumerate().map(|(index, values)| {
+                            let dimmed = self.hovered_day.is_some_and(|day| day != index);
                             div()
                                 .id(SharedString::from(format!("day-{index}")))
                                 .flex_1()
@@ -800,6 +820,7 @@ impl Dashboard {
                                 .flex_col()
                                 .justify_end()
                                 .gap(px(1.))
+                                .opacity(if dimmed { 0.45 } else { 1.0 })
                                 .on_mouse_move(cx.listener(move |view, _, _, cx| {
                                     if view.hovered_day != Some(index) {
                                         view.hovered_day = Some(index);
@@ -808,9 +829,9 @@ impl Dashboard {
                                 }))
                                 .children(Provider::ALL.into_iter().rev().map(|provider| {
                                     div()
-                                        .h(px((values[provider.index()] / maximum * 112.0) as f32))
+                                        .h(px((values[provider.index()] / maximum * 172.0) as f32))
                                         .w_full()
-                                        .rounded(px(2.))
+                                        .rounded(px(3.))
                                         .bg(rgb(color(provider)))
                                 }))
                         }))
@@ -844,14 +865,25 @@ impl Dashboard {
                         .text_size(px(11.)),
                     ),
             )
-            .child(div().mt(px(14.)).flex().gap(px(18.)).children(
+            .child(div().mt(px(14.)).flex().gap(px(22.)).children(
                 self.visible_accounts().iter().map(|status| {
+                    let totals = &analysis.providers[status.provider.index()];
                     div()
                         .flex()
                         .items_center()
                         .gap(px(6.))
                         .child(dot(status.provider))
                         .child(label(status.provider.name(), theme).text_size(px(12.)))
+                        .child(
+                            div()
+                                .font_family(mono_font())
+                                .text_size(px(12.))
+                                .child(if self.token_chart {
+                                    self.number(totals.tokens.total())
+                                } else {
+                                    self.spend(totals)
+                                }),
+                        )
                 }),
             ))
     }

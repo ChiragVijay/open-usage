@@ -41,20 +41,19 @@ impl Theme {
 }
 pub fn color(provider: Provider) -> u32 {
     match provider {
-        Provider::Codex => 0x67988b,
-        Provider::Claude => 0xb98971,
-        Provider::Cursor => 0x8b86bf,
+        Provider::Codex => 0x10a37f,
+        Provider::Claude => 0xd97757,
+        Provider::Cursor => 0x8a8f98,
     }
 }
 pub fn tint(provider: Provider, dark: bool) -> u32 {
-    if dark {
-        0x282930
-    } else {
-        match provider {
-            Provider::Codex => 0xebf4f2,
-            Provider::Claude => 0xf7f0eb,
-            Provider::Cursor => 0xeef2f8,
-        }
+    match (provider, dark) {
+        (Provider::Codex, false) => 0xe7f6f1,
+        (Provider::Claude, false) => 0xfbefea,
+        (Provider::Cursor, false) => 0xf0f1f3,
+        (Provider::Codex, true) => 0x15302a,
+        (Provider::Claude, true) => 0x3a2620,
+        (Provider::Cursor, true) => 0x2a2c31,
     }
 }
 pub fn body_font() -> &'static str {
