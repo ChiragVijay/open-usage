@@ -48,7 +48,7 @@ impl Dashboard {
                     .flex_col()
                     .gap(px(5.))
                     .children(
-                        [Page::Overview, Page::Activity, Page::Models, Page::Limits]
+                        [Page::Overview, Page::Models, Page::Limits, Page::Activity]
                             .into_iter()
                             .map(|page| self.navigation(page, cx)),
                     ),
@@ -352,11 +352,7 @@ impl Dashboard {
                 self.number(analysis.totals.tokens.total()),
                 self.period.label(),
             ))
-            .child(self.metric(
-                "Cost",
-                self.spend(&analysis.totals),
-                &cost_note,
-            ))
+            .child(self.metric("Cost", self.spend(&analysis.totals), &cost_note))
             .child(self.metric(
                 "Sessions",
                 self.number(analysis.totals.sessions as u64),
@@ -981,7 +977,7 @@ impl Dashboard {
                     )
             }))
     }
-    pub(super) fn activity(&self, cx: &Context<Self>) -> Div {
+    pub(super) fn activity(&self, viewport_height: f32, cx: &Context<Self>) -> Div {
         let theme = self.theme();
         let records = self
             .data()
@@ -992,139 +988,310 @@ impl Dashboard {
                     && analytics::matches(record, self.period, self.provider, Utc::now())
             })
             .collect::<Vec<_>>();
-        let page = self.activity_page.min(records.len().saturating_sub(1) / 40);
-        let start = page * 40;
+        let detail_open = self
+            .detail
+            .as_ref()
+            .is_some_and(|id| records.iter().any(|record| record.id == *id));
+        let fitted = rows_that_fit(viewport_height, detail_open, self.config.privacy);
+        let page_size = self.activity_rows.unwrap_or(fitted);
+        let scroll_rows = page_size > fitted;
+        let page_count = records.len().div_ceil(page_size);
+        let page = self.activity_page.min(page_count.saturating_sub(1));
+        let start = page * page_size;
         self.page_body(cx)
-            .child(self.toolbar(cx, true))
+            .flex_1()
+            .min_h_0()
+            .child(self.toolbar(cx, true).flex_shrink_0())
             .when_some(
                 self.detail
                     .as_ref()
                     .and_then(|id| records.iter().find(|record| record.id == *id)),
-                |body, record| body.child(self.usage_detail(record, cx)),
+                |body, record| body.child(self.usage_detail(record, cx).flex_shrink_0()),
             )
             .child(
                 panel(theme)
                     .p(px(0.))
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
                     .overflow_hidden()
                     .child(
                         div()
+                            .flex_shrink_0()
                             .px(px(18.))
                             .py(px(16.))
                             .flex()
                             .items_center()
                             .justify_between()
-                            .child(title("Usage events", theme))
-                            .child(self.button(
-                                "activity-export",
-                                "Export CSV",
-                                Some("export"),
-                                false,
-                                UiAction::Export,
-                                cx,
-                            )),
-                    )
-                    .child(self.activity_columns(
-                        ["Time", "Account", "Model", "Project", "Tokens", "Cost"],
-                        true,
-                    ))
-                    .when(records.is_empty(), |table| {
-                        table.child(
-                            div()
-                                .p(px(28.))
-                                .child(label("No usage events in this period", theme)),
-                        )
-                    })
-                    .children(records.iter().skip(start).take(40).map(|record| {
-                        let id = record.id.clone();
-                        let cost = self.event_cost(record).0;
-                        div()
-                            .id(SharedString::from(format!("record-{id}")))
-                            .cursor_pointer()
-                            .hover(move |style| style.bg(rgb(theme.bg)))
                             .child(
-                                self.activity_columns(
-                                    [
-                                        &record
-                                            .timestamp
-                                            .with_timezone(&Local)
-                                            .format("%b %-d  %H:%M")
-                                            .to_string(),
-                                        record.provider.name(),
-                                        &record.model,
-                                        if self.config.privacy {
-                                            "Hidden"
-                                        } else {
-                                            &record.project
-                                        },
-                                        &self.number(record.tokens.total()),
-                                        &cost,
-                                    ],
-                                    false,
-                                ),
+                                div()
+                                    .flex()
+                                    .items_end()
+                                    .gap(px(10.))
+                                    .child(title("Usage events", theme))
+                                    .child(
+                                        label(
+                                            format!(
+                                                "{} event{}",
+                                                grouped(records.len()),
+                                                if records.len() == 1 { "" } else { "s" }
+                                            ),
+                                            theme,
+                                        )
+                                        .text_size(px(12.)),
+                                    ),
                             )
-                            .on_click(cx.listener(move |view, _, window, cx| {
-                                view.perform(UiAction::Detail(id.clone()), window, cx)
-                            }))
-                    }))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .child(self.activity_row_options(cx))
+                                    .child(self.button(
+                                        "activity-export",
+                                        "Export CSV",
+                                        Some("export"),
+                                        false,
+                                        UiAction::Export,
+                                        cx,
+                                    )),
+                            ),
+                    )
+                    .child(
+                        self.activity_columns(
+                            ["Time", "Account", "Model", "Project", "Tokens", "Cost"],
+                            true,
+                            None,
+                        )
+                        .flex_shrink_0(),
+                    )
                     .child(
                         div()
-                            .px(px(18.))
-                            .py(px(14.))
-                            .border_t_1()
-                            .border_color(rgb(theme.line))
-                            .flex()
-                            .items_center()
-                            .gap(px(8.))
-                            .child(
-                                label(
-                                    format!(
-                                        "{}–{} of {}",
-                                        if records.is_empty() { 0 } else { start + 1 },
-                                        (start + 40).min(records.len()),
-                                        records.len()
-                                    ),
-                                    theme,
+                            .id(SharedString::from(format!(
+                                "activity-rows-{page}-{page_size}"
+                            )))
+                            .flex_1()
+                            .min_h_0()
+                            .when(scroll_rows, |rows| rows.overflow_y_scroll())
+                            .when(records.is_empty(), |rows| {
+                                rows.child(
+                                    div()
+                                        .p(px(28.))
+                                        .child(label("No usage events in this period", theme)),
                                 )
-                                .text_size(px(12.)),
-                            )
-                            .child(div().flex_1())
-                            .when(page > 0, |row| {
-                                row.child(self.button(
-                                    "activity-prev",
-                                    "Previous",
-                                    None,
-                                    false,
-                                    UiAction::PreviousActivity,
-                                    cx,
-                                ))
                             })
-                            .when(start + 40 < records.len(), |row| {
-                                row.child(self.button(
-                                    "activity-next",
-                                    "Next",
-                                    None,
-                                    false,
-                                    UiAction::NextActivity,
-                                    cx,
-                                ))
-                            }),
+                            .children(records.iter().skip(start).take(page_size).map(|record| {
+                                let id = record.id.clone();
+                                let cost = self.event_cost(record).0;
+                                let selected = self.detail.as_deref() == Some(record.id.as_str());
+                                div()
+                                    .id(SharedString::from(format!("record-{id}")))
+                                    .cursor_pointer()
+                                    .bg(rgb(if selected { theme.wash } else { theme.panel }))
+                                    .hover(move |style| style.bg(rgb(theme.wash)))
+                                    .child(
+                                        self.activity_columns(
+                                            [
+                                                &record
+                                                    .timestamp
+                                                    .with_timezone(&Local)
+                                                    .format("%b %-d  %H:%M")
+                                                    .to_string(),
+                                                record.provider.name(),
+                                                &record.model,
+                                                if self.config.privacy {
+                                                    "Hidden"
+                                                } else {
+                                                    &record.project
+                                                },
+                                                &self.number(record.tokens.total()),
+                                                &cost,
+                                            ],
+                                            false,
+                                            Some(record.provider),
+                                        ),
+                                    )
+                                    .on_click(cx.listener(move |view, _, window, cx| {
+                                        view.perform(UiAction::Detail(id.clone()), window, cx)
+                                    }))
+                            })),
+                    )
+                    .child(
+                        self.activity_pager(page, page_count, start, page_size, records.len(), cx)
+                            .flex_shrink_0(),
                     ),
             )
     }
-    fn activity_columns(&self, columns: [&str; 6], heading: bool) -> Div {
+    fn activity_row_options(&self, cx: &Context<Self>) -> Div {
+        let theme = self.theme();
+        div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(label("Show", theme).text_size(px(12.)))
+            .children(
+                [
+                    (None, "Fit"),
+                    (Some(25), "25"),
+                    (Some(50), "50"),
+                    (Some(100), "100"),
+                ]
+                .into_iter()
+                .map(|(limit, name)| {
+                    self.button(
+                        format!("activity-rows-{name}"),
+                        name,
+                        None,
+                        self.activity_rows == limit,
+                        UiAction::ActivityRows(limit),
+                        cx,
+                    )
+                }),
+            )
+    }
+    fn activity_pager(
+        &self,
+        page: usize,
+        page_count: usize,
+        start: usize,
+        page_size: usize,
+        total: usize,
+        cx: &Context<Self>,
+    ) -> Div {
+        let theme = self.theme();
+        let from = if total == 0 { 0 } else { start + 1 };
+        let to = (start + page_size).min(total);
+        div()
+            .px(px(16.))
+            .py(px(12.))
+            .border_t_1()
+            .border_color(rgb(theme.line))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(label(format!("{from}–{to} of {}", grouped(total)), theme).text_size(px(12.)))
+            .child(div().flex_1())
+            .when(page_count > 1, |row| {
+                row.child(self.page_step(
+                    "activity-prev",
+                    "Prev",
+                    page > 0,
+                    page.saturating_sub(1),
+                    cx,
+                ))
+                .children(
+                    activity_pages(page, page_count)
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, item)| match item {
+                            Some(number) => self
+                                .page_step(
+                                    format!("activity-page-{number}"),
+                                    (number + 1).to_string(),
+                                    true,
+                                    number,
+                                    cx,
+                                )
+                                .bg(rgb(if number == page {
+                                    theme.wash
+                                } else {
+                                    theme.panel
+                                }))
+                                .text_color(rgb(if number == page {
+                                    theme.ink
+                                } else {
+                                    theme.muted
+                                }))
+                                .font_weight(if number == page {
+                                    FontWeight::MEDIUM
+                                } else {
+                                    FontWeight::NORMAL
+                                }),
+                            None => div()
+                                .id(SharedString::from(format!("activity-gap-{index}")))
+                                .px(px(4.))
+                                .text_size(px(12.))
+                                .text_color(rgb(theme.muted))
+                                .child("…"),
+                        }),
+                )
+                .child(self.page_step(
+                    "activity-next",
+                    "Next",
+                    page + 1 < page_count,
+                    page + 1,
+                    cx,
+                ))
+            })
+    }
+    fn page_step(
+        &self,
+        id: impl Into<String>,
+        label: impl Into<String>,
+        enabled: bool,
+        page: usize,
+        cx: &Context<Self>,
+    ) -> Stateful<Div> {
+        let theme = self.theme();
+        div()
+            .id(SharedString::from(id.into()))
+            .h(px(28.))
+            .min_w(px(28.))
+            .px(px(8.))
+            .rounded(px(4.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_size(px(12.))
+            .text_color(rgb(if enabled { theme.ink } else { theme.muted }))
+            .opacity(if enabled { 1. } else { 0.4 })
+            .when(enabled, |chip| {
+                chip.cursor_pointer()
+                    .hover(move |style| style.bg(rgb(theme.wash)))
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        view.perform(UiAction::ActivityPage(page), window, cx)
+                    }))
+            })
+            .child(label.into())
+    }
+    fn activity_columns(
+        &self,
+        columns: [&str; 6],
+        heading: bool,
+        provider: Option<open_usage::model::Provider>,
+    ) -> Div {
         let [time, account, model, project, tokens, cost] = columns;
         let theme = self.theme();
         div()
-            .h(px(if heading { 38. } else { 45. }))
-            .px(px(18.))
+            .h(px(if heading { 36. } else { 42. }))
+            .px(px(16.))
             .flex()
             .items_center()
             .gap(px(12.))
             .border_t_1()
             .border_color(rgb(theme.line))
-            .when(heading, |row| row.bg(rgb(theme.bg)))
+            .when(heading, |row| row.bg(rgb(theme.sidebar)))
             .child(self.table_cell(time, Some(118.), false, heading))
-            .child(self.table_cell(account, Some(70.), false, heading))
+            .child(
+                div()
+                    .w(px(92.))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .gap(px(7.))
+                    .when(heading, |cell| {
+                        cell.child(div().size(px(7.)).flex_shrink_0())
+                    })
+                    .when_some(provider, |cell, provider| {
+                        cell.child(dot(provider, self.config.dark))
+                    })
+                    .child(
+                        self.table_cell(account, None, false, heading)
+                            .flex_1()
+                            .min_w_0(),
+                    ),
+            )
             .child(
                 self.table_cell(model, None, false, heading)
                     .flex_1()
@@ -1440,6 +1607,45 @@ fn plan_name(plan: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+/// How many activity rows fit under the header, toolbar, and pager.
+fn rows_that_fit(viewport_height: f32, detail_open: bool, privacy: bool) -> usize {
+    const ROW: f32 = 43.;
+    let mut chrome = 52. + 48. + 36. + 16. + 60. + 37. + 53. + 8.;
+    if detail_open {
+        chrome += 16. + if privacy { 290. } else { 360. };
+    }
+    ((viewport_height - chrome) / ROW).floor().max(1.) as usize
+}
+fn activity_pages(current: usize, total: usize) -> Vec<Option<usize>> {
+    if total <= 7 {
+        return (0..total).map(Some).collect();
+    }
+    let mut pages = vec![Some(0)];
+    let from = current.saturating_sub(2).max(1);
+    let to = (current + 2).min(total - 2);
+    if from > 1 {
+        pages.push(None);
+    }
+    for page in from..=to {
+        pages.push(Some(page));
+    }
+    if to + 1 < total - 1 {
+        pages.push(None);
+    }
+    pages.push(Some(total - 1));
+    pages
+}
+fn grouped(value: usize) -> String {
+    let digits = value.to_string();
+    let mut out = String::new();
+    for (index, ch) in digits.chars().rev().enumerate() {
+        if index > 0 && index % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out.chars().rev().collect()
 }
 fn reset_text(at: Option<chrono::DateTime<Utc>>) -> String {
     let Some(at) = at else {

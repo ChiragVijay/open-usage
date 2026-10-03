@@ -69,8 +69,8 @@ enum UiAction {
     Enable(Provider),
     Interval(u64),
     OpenProvider(Provider),
-    NextActivity,
-    PreviousActivity,
+    ActivityPage(usize),
+    ActivityRows(Option<usize>),
     Detail(String),
     CloseDetail,
 }
@@ -102,6 +102,8 @@ pub struct Dashboard {
     compact: bool,
     pending_size: Option<Size<Pixels>>,
     activity_page: usize,
+    /// `None` shows as many rows as fit in the window.
+    activity_rows: Option<usize>,
     detail: Option<String>,
 }
 
@@ -159,6 +161,7 @@ impl Dashboard {
             compact: false,
             pending_size: None,
             activity_page: 0,
+            activity_rows: None,
             detail: None,
         };
         view.refresh(cx);
@@ -581,8 +584,11 @@ impl Dashboard {
                     self.message("The provider dashboard could not be opened", cx);
                 }
             }
-            UiAction::NextActivity => self.activity_page += 1,
-            UiAction::PreviousActivity => self.activity_page = self.activity_page.saturating_sub(1),
+            UiAction::ActivityPage(page) => self.activity_page = page,
+            UiAction::ActivityRows(limit) => {
+                self.activity_rows = limit;
+                self.activity_page = 0;
+            }
             UiAction::Detail(id) => self.detail = Some(id),
             UiAction::CloseDetail => self.detail = None,
         }
@@ -641,9 +647,9 @@ impl Dashboard {
                 "p" => Some(UiAction::Privacy),
                 "q" => Some(UiAction::Quit),
                 "1" => Some(UiAction::Page(Page::Overview)),
-                "2" => Some(UiAction::Page(Page::Activity)),
-                "3" => Some(UiAction::Page(Page::Models)),
-                "4" => Some(UiAction::Page(Page::Limits)),
+                "2" => Some(UiAction::Page(Page::Models)),
+                "3" => Some(UiAction::Page(Page::Limits)),
+                "4" => Some(UiAction::Page(Page::Activity)),
                 "5" => Some(UiAction::Page(Page::Connections)),
                 "6" => Some(UiAction::Page(Page::Settings)),
                 _ => None,
@@ -680,7 +686,7 @@ impl Render for Dashboard {
         } else {
             let page = match self.page {
                 Page::Overview => self.overview(cx),
-                Page::Activity => self.activity(cx),
+                Page::Activity => self.activity(f32::from(window.viewport_size().height), cx),
                 Page::Models => self.models_view(cx),
                 Page::Limits => self.limits_view(cx),
                 Page::Connections => self.connections(cx),
@@ -697,7 +703,8 @@ impl Render for Dashboard {
                         .flex()
                         .flex_col()
                         .child(self.header(cx))
-                        .child(
+                        .child({
+                            let pinned = self.page == Page::Activity;
                             div()
                                 .id(SharedString::from(format!(
                                     "main-scroll-{}",
@@ -705,10 +712,11 @@ impl Render for Dashboard {
                                 )))
                                 .flex_1()
                                 .min_h_0()
-                                .overflow_y_scroll()
                                 .p(px(24.))
-                                .child(page),
-                        ),
+                                .when(pinned, |region| region.flex().flex_col().overflow_hidden())
+                                .when(!pinned, |region| region.overflow_y_scroll())
+                                .child(page)
+                        }),
                 )
                 .into_any_element()
         };

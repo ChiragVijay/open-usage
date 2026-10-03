@@ -64,7 +64,7 @@ Closing the window keeps background tracking active when a tray icon is availabl
 
 | Shortcut | Action |
 | --- | --- |
-| Ctrl/Cmd + 1–6 | Accounts, Activity, Models, Limits, Connections, Settings |
+| Ctrl/Cmd + 1–6 | Accounts, Models, Limits, Activity, Connections, Settings |
 | Ctrl/Cmd + Shift + 1–5 | 2 hours, 24 hours, 7 days, 30 days, 90 days |
 | Ctrl/Cmd + R | Refresh |
 | Ctrl/Cmd + P | Display privacy mode |
