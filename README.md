@@ -37,7 +37,7 @@ Mise tasks: `dev`, `check`, `test`, `lint`, `build`, `package`.
 
 Agent discovery and local history scanning run automatically. Discovery checks PATH executables, common installation locations, macOS app bundles, standard data folders, environment home overrides, and additional folders you select. It reads filesystem metadata without running agents or exposing credentials. Claude Desktop is not mistaken for Claude Code; unrelated commands named `agent` are not mistaken for Cursor.
 
-New configurations check existing signed-in accounts automatically. **Connections → Account checks** pauses or resumes these reads; existing pause preferences are preserved. Local history continues updating while account checks are paused. No API key is required for subscription logins.
+New configurations check existing signed-in accounts automatically. No API key is required for subscription logins.
 
 | Account | History | Allowances |
 | --- | --- | --- |

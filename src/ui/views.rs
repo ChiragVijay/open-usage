@@ -2,7 +2,7 @@ use super::*;
 use chrono::Local;
 use open_usage::{
     analytics::{Analysis, Totals},
-    model::{LimitWindow, ProviderStatus, UsageRecord},
+    model::{LimitWindow, Provider, ProviderStatus, UsageRecord},
 };
 
 impl Dashboard {
@@ -71,33 +71,7 @@ impl Dashboard {
                     .px(px(18.))
                     .py(px(16.))
                     .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(7.))
-                            .child(div().size(px(6.)).rounded_full().bg(rgb(
-                                if self.config.online {
-                                    theme.ink
-                                } else {
-                                    theme.muted
-                                },
-                            )))
-                            .child(
-                                label(
-                                    if self.config.online {
-                                        "Account sync on"
-                                    } else {
-                                        "Local history"
-                                    },
-                                    theme,
-                                )
-                                .text_size(px(12.)),
-                            ),
-                    )
-                    .child(
-                        label(concat!("v", env!("CARGO_PKG_VERSION")), theme)
-                            .mt(px(6.))
-                            .text_size(px(11.)),
+                        label(concat!("v", env!("CARGO_PKG_VERSION")), theme).text_size(px(11.)),
                     ),
             )
     }
@@ -424,29 +398,6 @@ impl Dashboard {
                         cx,
                     )),
             )
-            .when(!self.config.online, |body| {
-                body.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(10.))
-                        .child(
-                            label(
-                                "Account checks paused · local history is still updated",
-                                theme,
-                            )
-                            .text_size(px(12.)),
-                        )
-                        .child(self.button(
-                            "account-sync-settings",
-                            "Connections",
-                            None,
-                            false,
-                            UiAction::Page(Page::Connections),
-                            cx,
-                        )),
-                )
-            })
     }
     fn account_row(&self, status: &ProviderStatus, totals: &Totals, cx: &Context<Self>) -> Div {
         let theme = self.theme();
@@ -946,7 +897,7 @@ impl Dashboard {
                                     if self.config.online {
                                         "No account allowances reported"
                                     } else {
-                                        "Enable account sync to read allowances"
+                                        "Account checks are paused"
                                     },
                                     theme,
                                 ))
@@ -1382,49 +1333,268 @@ impl Dashboard {
     }
     pub(super) fn connections(&self, cx: &Context<Self>) -> Div {
         let theme = self.theme();
-        let detected = self
-            .live
-            .providers
-            .iter()
-            .filter(|status| {
-                status.detected
-                    || status.connected
-                    || self
-                        .live
-                        .records
-                        .iter()
-                        .any(|record| record.provider == status.provider)
+        div().w_full().max_w(px(720.)).mx_auto().child(
+            panel(theme).p(px(0.)).overflow_hidden().children(
+                Provider::ALL
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(index, provider)| {
+                        self.data()
+                            .providers
+                            .get(provider.index())
+                            .filter(|status| status.provider == provider)
+                            .map(|status| self.connection_account(status, index > 0, cx))
+                    }),
+            ),
+        )
+    }
+    fn connection_account(
+        &self,
+        status: &ProviderStatus,
+        divider: bool,
+        cx: &Context<Self>,
+    ) -> Div {
+        let theme = self.theme();
+        let provider = status.provider;
+        let included = self.config.enabled[provider.index()];
+        let summary = self.connection_summary(status);
+        let sources = self.listed_sources(status);
+        div()
+            .when(divider, |row| {
+                row.border_t_1().border_color(rgb(theme.line))
             })
-            .collect::<Vec<_>>();
-        self.page_body(cx)
-            .child(panel(theme).flex().items_center().gap(px(20.))
-                .child(div().flex_1().child(title("Account checks", theme))
-                    .child(label("Read costs and allowances using existing logins. Usage history stays on this device.", theme).mt(px(6.))))
-                .child(self.button("connections-sync", if self.config.online { "Pause" } else { "Resume" }, None, self.config.online, UiAction::Online, cx)))
-            .child(div().flex().items_center().child(title("Detected agents", theme))
-                .child(div().flex_1()).child(self.button("discovery-refresh", "Scan again", Some("refresh"), false, UiAction::Refresh, cx)))
-            .when(detected.is_empty(), |body| body.child(panel(theme).child(label("No supported agents found. Install or open an agent, then scan again.", theme))))
-            .children(detected.iter().map(|status| {
-                let provider = status.provider;
-                panel(theme)
-                    .child(div().flex().items_center().gap(px(12.)).child(provider_mark(provider,self.config.dark))
-                        .child(div().flex_1().child(title(provider.account_name(),theme)))
-                        .child(self.button(format!("enable-{}",provider.key()),if self.config.enabled[provider.index()]{"Tracking"}else{"Paused"},None,self.config.enabled[provider.index()],UiAction::Enable(provider),cx)))
-                    .child(label(status.detail.clone(),theme).text_size(px(12.)).mt(px(12.)))
-                    .when(!self.config.privacy, |card| card.children(status.installations.iter().take(2).map(|path|
-                        label(path.clone(),theme).font_family(mono_font()).text_size(px(11.)).mt(px(7.)).truncate())))
-                    .child(div().mt(px(14.)).flex().items_center().gap(px(8.))
-                        .child(self.button(format!("add-home-{}",provider.key()),"Add folder",Some("connections"),false,UiAction::AddHome(provider),cx))
-                        .when(provider==Provider::Cursor,|row|row.child(self.button("cursor-csv","Import CSV",Some("export"),false,UiAction::ImportCursor,cx)))
-                        .when(provider==Provider::Cursor&&!self.config.cursor_imports.is_empty(),|row|row.child(self.button("cursor-clear","Remove import",None,false,UiAction::ClearCursor,cx)))
-                        .child(div().flex_1()).child(self.button(format!("open-account-{}",provider.key()),"Open account",Some("arrow"),false,UiAction::OpenProvider(provider),cx)))
+            .px(px(18.))
+            .py(px(14.))
+            .flex()
+            .items_start()
+            .gap(px(12.))
+            .child(provider_mark(provider, self.config.dark).mt(px(1.)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(title(provider.account_name(), theme).text_size(px(14.)))
+                    .when_some(summary.filter(|_| included), |column, summary| {
+                        column.child(label(summary, theme).mt(px(3.)).text_size(px(12.)))
+                    })
+                    .when(included, |column| {
+                        column
+                            .children(sources.iter().map(|source| {
+                                let remove = source.remove.clone();
+                                div()
+                                    .mt(px(8.))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .truncate()
+                                            .font_family(mono_font())
+                                            .text_size(px(12.))
+                                            .text_color(rgb(theme.muted))
+                                            .child(source.text.clone()),
+                                    )
+                                    .when_some(remove, |row, (id, action)| {
+                                        row.child(
+                                            self.button(id, "Remove", None, false, action, cx),
+                                        )
+                                    })
+                            }))
+                            .child(
+                                div()
+                                    .mt(px(12.))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .child(self.button(
+                                        format!("add-home-{}", provider.key()),
+                                        "Add folder",
+                                        None,
+                                        false,
+                                        UiAction::AddHome(provider),
+                                        cx,
+                                    ))
+                                    .when(provider == Provider::Cursor, |row| {
+                                        row.child(self.button(
+                                            "cursor-csv",
+                                            "Import CSV",
+                                            None,
+                                            false,
+                                            UiAction::ImportCursor,
+                                            cx,
+                                        ))
+                                    })
+                                    .child(div().flex_1())
+                                    .child(self.button(
+                                        format!("open-account-{}", provider.key()),
+                                        "View",
+                                        Some("arrow"),
+                                        false,
+                                        UiAction::OpenProvider(provider),
+                                        cx,
+                                    )),
+                            )
+                    }),
+            )
+            .child(div().mt(px(2.)).child(self.toggle(
+                &format!("include-{}", provider.key()),
+                included,
+                move |view, on, cx| {
+                    view.config.enabled[provider.index()] = on;
+                    view.save(cx);
+                    view.refresh(cx);
+                },
+                cx,
+            )))
+    }
+    fn toggle(
+        &self,
+        id: &str,
+        on: bool,
+        change: impl Fn(&mut Self, bool, &mut Context<Self>) + 'static,
+        cx: &Context<Self>,
+    ) -> Stateful<Div> {
+        let theme = self.theme();
+        let change = std::rc::Rc::new(change);
+        let change_key = change.clone();
+        let (track, knob) = if on {
+            (theme.ink, theme.bg)
+        } else if self.config.dark {
+            (theme.line, theme.muted)
+        } else {
+            (theme.wash, theme.panel)
+        };
+        div()
+            .id(SharedString::from(id.to_owned()))
+            .focusable()
+            .tab_index(0)
+            .w(px(40.))
+            .h(px(24.))
+            .flex_shrink_0()
+            .rounded_full()
+            .cursor_pointer()
+            .flex()
+            .items_center()
+            .px(px(3.))
+            .bg(rgb(track))
+            .when(on, |track| track.justify_end())
+            .when(!self.config.dark && !on, |track| {
+                track.border_1().border_color(rgb(theme.line))
+            })
+            .focus(move |style| style.border_1().border_color(rgb(theme.accent)))
+            .on_click(cx.listener(move |view, _, _, cx| {
+                change(view, !on, cx);
+                cx.stop_propagation();
             }))
-            .child(panel(theme).child(title("Other data locations",theme))
-                .child(label("Add an existing history folder or a Cursor usage export.",theme).text_size(px(12.)).mt(px(6.)))
-                .child(div().mt(px(14.)).flex().gap(px(8.))
-                    .child(self.button("manual-codex","ChatGPT folder",None,false,UiAction::AddHome(Provider::Codex),cx))
-                    .child(self.button("manual-claude","Claude Code folder",None,false,UiAction::AddHome(Provider::Claude),cx))
-                    .child(self.button("manual-cursor","Cursor CSV",None,false,UiAction::ImportCursor,cx))))
+            .on_key_down(cx.listener(move |view, event: &KeyDownEvent, _, cx| {
+                if event.keystroke.key == "enter" || event.keystroke.key == "space" {
+                    change_key(view, !on, cx);
+                    cx.stop_propagation();
+                }
+            }))
+            .child(
+                div()
+                    .size(px(18.))
+                    .rounded_full()
+                    .bg(rgb(knob))
+                    .when(!on && !self.config.dark, |knob| {
+                        knob.border_1().border_color(rgb(theme.line))
+                    }),
+            )
+    }
+    fn connection_summary(&self, status: &ProviderStatus) -> Option<String> {
+        let mut parts = Vec::new();
+        if status.provider == Provider::Cursor && !self.config.cursor_imports.is_empty() {
+            parts.push("CSV".into());
+        } else if status.provider != Provider::Cursor && status.sources > 0 {
+            parts.push(if status.sources == 1 {
+                "1 file".into()
+            } else {
+                format!("{} files", status.sources)
+            });
+        }
+        if let Some(allowance) = self.allowance_label(status) {
+            parts.push(allowance);
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(" · "))
+        }
+    }
+    fn allowance_label(&self, status: &ProviderStatus) -> Option<String> {
+        if !self.config.online {
+            return Some(if status.checked_at.is_some() {
+                "Cached".into()
+            } else {
+                "Paused".into()
+            });
+        }
+        if !status.stale && status.checked_at.is_some() {
+            return Some(
+                status
+                    .plan
+                    .as_deref()
+                    .map(plan_name)
+                    .unwrap_or_else(|| "Live".into()),
+            );
+        }
+        if reported_error(&status.detail) {
+            return Some(status.detail.clone());
+        }
+        if status.checked_at.is_some() {
+            return Some("Cached".into());
+        }
+        if status.detected {
+            return Some("No sign-in".into());
+        }
+        None
+    }
+    fn listed_sources(&self, status: &ProviderStatus) -> Vec<ListedSource> {
+        let provider = status.provider;
+        let mut listed = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for (index, path) in self.config.custom_homes[provider.index()]
+            .iter()
+            .enumerate()
+        {
+            seen.insert(path_key(path));
+            listed.push(ListedSource {
+                text: self.location_text(path),
+                remove: Some((
+                    format!("remove-home-{}-{index}", provider.key()),
+                    UiAction::RemoveHome(provider, index),
+                )),
+            });
+        }
+        if provider == Provider::Cursor
+            && let Some(path) = self.config.cursor_imports.first()
+        {
+            seen.insert(path_key(path));
+            listed.push(ListedSource {
+                text: self.location_text(path),
+                remove: Some(("cursor-clear".into(), UiAction::ClearCursor)),
+            });
+        }
+        for path in open_usage::providers::homes(provider, &self.config) {
+            if !seen.insert(path_key(&path)) || !path.exists() {
+                continue;
+            }
+            listed.push(ListedSource {
+                text: self.location_text(&path),
+                remove: None,
+            });
+        }
+        listed
+    }
+    fn location_text(&self, path: &std::path::Path) -> String {
+        if self.config.privacy {
+            "Hidden".into()
+        } else {
+            display_path(path)
+        }
     }
     pub(super) fn settings(&self, cx: &Context<Self>) -> Div {
         let theme = self.theme();
@@ -1595,6 +1765,42 @@ impl Dashboard {
                     )),
             )
     }
+}
+struct ListedSource {
+    text: String,
+    remove: Option<(String, UiAction)>,
+}
+fn display_path(path: &std::path::Path) -> String {
+    let text = path.display().to_string();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        text
+    }
+}
+fn path_key(path: &std::path::Path) -> String {
+    path.canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .to_lowercase()
+}
+fn reported_error(detail: &str) -> bool {
+    const KNOWN: &[&str] = &[
+        "Paused in Connections",
+        "Account history · across your machines",
+        "Local history + live account limits",
+        "Live account limits",
+        "Cached Cursor account history",
+        "Detected on this device · no local usage yet",
+        "Import a usage CSV or enable account checks",
+        "Connect a source to see usage",
+    ];
+    if detail.is_empty() || KNOWN.contains(&detail) || detail.ends_with("history files · local") {
+        return false;
+    }
+    !(detail.starts_with("Use ") && detail.contains("to create local history"))
 }
 fn plan_name(plan: &str) -> String {
     plan.split(['_', '-'])

@@ -57,16 +57,15 @@ enum UiAction {
     AccountActivity(Provider),
     Refresh,
     Export,
-    Online,
     Privacy,
     Dark,
     Compact,
     Quit,
     Metric(bool),
     AddHome(Provider),
+    RemoveHome(Provider, usize),
     ImportCursor,
     ClearCursor,
-    Enable(Provider),
     Interval(u64),
     OpenProvider(Provider),
     ActivityPage(usize),
@@ -501,11 +500,6 @@ impl Dashboard {
                     }
                 }
             }
-            UiAction::Online => {
-                self.config.online = !self.config.online;
-                self.save(cx);
-                self.refresh(cx);
-            }
             UiAction::Privacy => {
                 self.config.privacy = !self.config.privacy;
                 self.save(cx);
@@ -544,6 +538,14 @@ impl Dashboard {
                     self.refresh(cx);
                 }
             }
+            UiAction::RemoveHome(provider, index) => {
+                let paths = &mut self.config.custom_homes[provider.index()];
+                if index < paths.len() {
+                    paths.remove(index);
+                    self.save(cx);
+                    self.refresh(cx);
+                }
+            }
             UiAction::ImportCursor => {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter("Cursor usage export", &["csv"])
@@ -562,11 +564,6 @@ impl Dashboard {
             }
             UiAction::ClearCursor => {
                 self.config.cursor_imports.clear();
-                self.save(cx);
-                self.refresh(cx);
-            }
-            UiAction::Enable(provider) => {
-                self.config.enabled[provider.index()] = !self.config.enabled[provider.index()];
                 self.save(cx);
                 self.refresh(cx);
             }
