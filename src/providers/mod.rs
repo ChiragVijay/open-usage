@@ -1,6 +1,17 @@
+pub mod antigravity;
+mod auth;
+mod claude;
+mod codex;
+mod cursor;
 pub mod discovery;
 pub mod history;
+mod http;
+pub mod kiro;
 pub mod live;
+mod local;
+pub mod opencode;
+mod process;
+mod proto;
 
 use crate::{
     config::Config,
@@ -19,6 +30,14 @@ use std::{
 use walkdir::WalkDir;
 
 pub fn homes(provider: Provider, config: &Config) -> Vec<PathBuf> {
+    if let Some(root) = std::env::var_os(format!(
+        "OPEN_USAGE_{}_HOME",
+        provider.key().to_ascii_uppercase()
+    )) {
+        let mut paths = vec![PathBuf::from(root)];
+        paths.extend(config.custom_homes[provider.index()].iter().cloned());
+        return distinct_paths(paths);
+    }
     let home = dirs::home_dir().unwrap_or_default();
     let default = match provider {
         Provider::Codex => std::env::var_os("CODEX_HOME")
@@ -37,8 +56,44 @@ pub fn homes(provider: Provider, config: &Config) -> Vec<PathBuf> {
                 home.join(".cursor")
             }
         }
+        Provider::Kiro => editor_home("Kiro", &home),
+        Provider::Antigravity => editor_home("Antigravity", &home),
+        Provider::OpenCode => std::env::var_os("OPENCODE_DATA_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::var_os("XDG_DATA_HOME")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| home.join(".local/share"))
+                    .join("opencode")
+            }),
     };
     let mut paths = vec![default];
+    if provider == Provider::Kiro {
+        paths.extend([
+            home.join(".kiro"),
+            home.join(".aws/sso/cache"),
+            dirs::data_dir().unwrap_or_default().join("kiro-cli"),
+            home.join(".local/share/kiro-cli"),
+            dirs::data_dir().unwrap_or_default().join("amazon-q"),
+        ]);
+    }
+    if provider == Provider::Antigravity {
+        paths.push(editor_home("Antigravity IDE", &home));
+        paths.push(home.join(".gemini/antigravity-cli"));
+        if let Ok(stores) = std::fs::read_dir(home.join(".gemini")) {
+            paths.extend(
+                stores
+                    .flatten()
+                    .filter(|entry| {
+                        entry
+                            .file_name()
+                            .to_string_lossy()
+                            .starts_with("antigravity")
+                    })
+                    .map(|entry| entry.path()),
+            );
+        }
+    }
     if provider == Provider::Cursor {
         paths.push(home.join(".cursor"));
         if cfg!(target_os = "macos") {
@@ -46,13 +101,29 @@ pub fn homes(provider: Provider, config: &Config) -> Vec<PathBuf> {
         }
     }
     paths.extend(config.custom_homes[provider.index()].iter().cloned());
-    paths = paths
+    distinct_paths(paths)
+}
+fn distinct_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = paths
         .into_iter()
         .map(|path| path.canonicalize().unwrap_or(path))
         .collect();
     let mut seen = std::collections::BTreeSet::new();
     paths.retain(|path| seen.insert(path.clone()));
     paths
+}
+fn editor_home(name: &str, home: &std::path::Path) -> PathBuf {
+    if cfg!(target_os = "windows") {
+        dirs::config_dir()
+            .unwrap_or_else(|| home.join("AppData/Roaming"))
+            .join(name)
+    } else if cfg!(target_os = "macos") {
+        home.join("Library/Application Support").join(name)
+    } else {
+        dirs::config_dir()
+            .unwrap_or_else(|| home.join(".config"))
+            .join(name)
+    }
 }
 
 struct LocalScan {
@@ -61,6 +132,7 @@ struct LocalScan {
     sources: usize,
     records: BTreeMap<String, UsageRecord>,
     notices: Vec<String>,
+    cached_limits: Option<kiro::CachedLimits>,
 }
 
 pub fn collect(config: &Config, previous: &Snapshot) -> Result<Snapshot> {
@@ -78,6 +150,7 @@ pub fn collect_with(
     let store = Arc::new(Mutex::new(Store::open()?));
     let environment = discovery::Environment::current();
     let mut snapshot = previous.clone();
+    snapshot.normalize_providers();
     snapshot.notices.clear();
     for provider in Provider::ALL {
         let status = &mut snapshot.providers[provider.index()];
@@ -90,7 +163,7 @@ pub fn collect_with(
     }
 
     enum Event {
-        Accounts(Provider, Result<live::LiveData, String>),
+        Accounts(Provider, Option<String>, Result<live::LiveData, String>),
         History(Provider, LocalScan),
     }
     let (sender, receiver) = mpsc::channel();
@@ -100,20 +173,30 @@ pub fn collect_with(
             continue;
         }
         let directories = homes(provider, config);
+        let mut account_homes = directories.clone();
+        if provider == Provider::Codex {
+            account_homes.extend(homes(Provider::OpenCode, config));
+        }
         let check_account = config.online
             && (snapshot.providers[provider.index()].detected
                 || snapshot.providers[provider.index()].connected
                 || snapshot.providers[provider.index()].checked_at.is_some()
+                || (provider == Provider::Codex
+                    && account_homes.iter().any(|home| {
+                        home.join("opencode.db").is_file()
+                            || home.join("opencode-next.db").is_file()
+                    }))
                 || !discovery::detect(provider, &directories, &environment).is_empty());
         if check_account {
             pending += 1;
             let sender = sender.clone();
-            let directories = directories.clone();
+            let directories = account_homes;
             let history = provider == Provider::Cursor && config.cursor_imports.is_empty();
             thread::spawn(move || {
+                let fingerprint = live::fingerprint(provider, &directories).ok().flatten();
                 let result =
                     live::fetch(provider, &directories, history).map_err(|e| e.to_string());
-                let _ = sender.send(Event::Accounts(provider, result));
+                let _ = sender.send(Event::Accounts(provider, fingerprint, result));
             });
         }
         pending += 1;
@@ -141,16 +224,26 @@ pub fn collect_with(
     }
     drop(sender);
 
-    let mut live_error = [None, None, None];
-    let mut history_done = [false; 3];
+    let mut live_error: [Option<String>; Provider::COUNT] = Default::default();
+    let mut history_done = [false; Provider::COUNT];
     while pending > 0 {
         let Ok(event) = receiver.recv() else {
             break;
         };
         pending -= 1;
         match event {
-            Event::Accounts(provider, result) => {
+            Event::Accounts(provider, fingerprint, result) => {
                 let status = &mut snapshot.providers[provider.index()];
+                if matches!(
+                    provider,
+                    Provider::Kiro | Provider::Antigravity | Provider::OpenCode
+                ) && (fingerprint.is_none() || status.account_fingerprint != fingerprint)
+                {
+                    status.limits.clear();
+                    status.plan = None;
+                    status.checked_at = None;
+                }
+                status.account_fingerprint = fingerprint;
                 match result {
                     Ok(data) => {
                         status.limits = data.limits;
@@ -178,6 +271,18 @@ pub fn collect_with(
                 status.detected = scan.detected;
                 status.sources = scan.sources;
                 if scan.sources > 0 {
+                    status.connected = true;
+                }
+                if let Some(cached) = scan.cached_limits
+                    && (status.stale || status.checked_at.is_none())
+                    && (!config.online || live_error[provider.index()].is_none())
+                    && status
+                        .checked_at
+                        .is_none_or(|checked| cached.checked_at > checked)
+                {
+                    status.limits = cached.limits;
+                    status.checked_at = Some(cached.checked_at);
+                    status.stale = true;
                     status.connected = true;
                 }
                 // Cursor account history arrives with the allowance check. A local
@@ -233,6 +338,10 @@ fn describe(
     if !status.stale && status.checked_at.is_some() {
         status.detail = if status.provider == Provider::Cursor {
             "Account history · across your machines".into()
+        } else if status.provider == Provider::Kiro {
+            "Live credit allowance".into()
+        } else if status.limits.is_empty() {
+            "Local history · no subscription limits reported".into()
         } else if status.sources > 0 || !history {
             "Local history + live account limits".into()
         } else {
@@ -275,10 +384,103 @@ fn scan_local(
         sources: 0,
         records: BTreeMap::new(),
         notices: vec![],
+        cached_limits: None,
     };
     scan.detected = !scan.installations.is_empty();
     let mut file_errors = 0;
-    if provider != Provider::Cursor {
+    if matches!(
+        provider,
+        Provider::Kiro | Provider::Antigravity | Provider::OpenCode
+    ) {
+        if provider == Provider::Kiro {
+            match kiro::cached_limits(directories) {
+                Ok(cached) => scan.cached_limits = cached,
+                Err(_) => file_errors += 1,
+            }
+        } else {
+            let paths = if provider == Provider::OpenCode {
+                opencode::databases(directories)
+            } else {
+                antigravity::databases(directories)
+            };
+            match paths {
+                Ok(paths) => {
+                    for path in paths {
+                        scan.sources += 1;
+                        let result = (|| -> Result<Vec<UsageRecord>> {
+                            let (size, modified) = local::fingerprint(&path)?;
+                            if let Some(records) = store
+                                .lock()
+                                .unwrap_or_else(|poison| poison.into_inner())
+                                .cached(&path, size, modified)?
+                            {
+                                return Ok(records);
+                            }
+                            let (records, skipped) = if provider == Provider::OpenCode {
+                                (opencode::history(&path)?, 0)
+                            } else {
+                                antigravity::history_with_warnings(&path)?
+                            };
+                            file_errors += skipped;
+                            if skipped == 0 && local::fingerprint(&path)? == (size, modified) {
+                                store
+                                    .lock()
+                                    .unwrap_or_else(|poison| poison.into_inner())
+                                    .cache(&path, size, modified, &records)?;
+                            }
+                            Ok(records)
+                        })();
+                        match result {
+                            Ok(records) => {
+                                for record in records {
+                                    scan.records.insert(record.id.clone(), record);
+                                }
+                            }
+                            Err(_) => file_errors += 1,
+                        }
+                    }
+                }
+                Err(_) => file_errors += 1,
+            }
+        }
+        if file_errors > 0 {
+            // Partial failures must not turn previously measured usage into zero.
+            for record in previous {
+                scan.records
+                    .entry(record.id.clone())
+                    .or_insert_with(|| record.clone());
+            }
+        }
+    } else if provider != Provider::Cursor {
+        if provider == Provider::Codex {
+            match opencode::databases(&homes(Provider::OpenCode, config)) {
+                Ok(paths) => {
+                    for path in paths {
+                        match opencode::codex_history(&path) {
+                            Ok(records) => {
+                                if !records.is_empty() {
+                                    scan.sources += 1;
+                                    scan.detected = true;
+                                }
+                                for record in records {
+                                    scan.records.insert(record.id.clone(), record);
+                                }
+                            }
+                            Err(_) => {
+                                file_errors += 1;
+                                for record in previous
+                                    .iter()
+                                    .filter(|record| record.source == path.to_string_lossy())
+                                {
+                                    scan.records.insert(record.id.clone(), record.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(_) => file_errors += 1,
+            }
+        }
         let subdirs: &[&str] = if provider == Provider::Codex {
             &["sessions", "archived_sessions"]
         } else {

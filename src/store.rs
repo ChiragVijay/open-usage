@@ -32,7 +32,11 @@ impl Store {
             .query_row("SELECT json FROM snapshot WHERE id=1", [], |row| row.get(0))
             .optional()?;
         value
-            .map(|value| serde_json::from_str(&value).map_err(Into::into))
+            .map(|value| {
+                let mut snapshot: Snapshot = serde_json::from_str(&value)?;
+                snapshot.normalize_providers();
+                Ok(snapshot)
+            })
             .transpose()
     }
     pub fn save(&self, snapshot: &Snapshot) -> Result<()> {

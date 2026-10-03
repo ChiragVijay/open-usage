@@ -14,28 +14,27 @@ pub struct Theme {
 }
 impl Theme {
     pub fn new(dark: bool) -> Self {
-        // Notion's warm neutrals: white page, stone sidebar, ink #37352f.
         if dark {
             Self {
-                bg: 0x191919,
-                panel: 0x202020,
-                sidebar: 0x202020,
-                ink: 0xe8e7e4,
-                muted: 0x9b9a97,
-                line: 0x2f2f2f,
-                wash: 0x2c2c2b,
-                accent: 0xe8e7e4,
+                bg: 0x191b1f,
+                panel: 0x21242a,
+                sidebar: 0x202227,
+                ink: 0xf1f3f5,
+                muted: 0xa6abb4,
+                line: 0x353a43,
+                wash: 0x30323e,
+                accent: 0xf1f3f5,
             }
         } else {
             Self {
                 bg: 0xffffff,
                 panel: 0xffffff,
-                sidebar: 0xf7f7f5,
-                ink: 0x37352f,
-                muted: 0x787774,
-                line: 0xe9e9e7,
-                wash: 0xefefed,
-                accent: 0x37352f,
+                sidebar: 0xf7f8fa,
+                ink: 0x24262b,
+                muted: 0x68707c,
+                line: 0xe5e8ed,
+                wash: 0xefeff6,
+                accent: 0x24262b,
             }
         }
     }
@@ -49,6 +48,12 @@ pub fn color(provider: Provider, dark: bool) -> u32 {
         (Provider::Codex, true) => 0x529cca,
         (Provider::Claude, true) => 0xe08a3c,
         (Provider::Cursor, true) => 0xa484c7,
+        (Provider::Kiro, false) => 0xad4381,
+        (Provider::Kiro, true) => 0xd779b0,
+        (Provider::Antigravity, false) => 0x268269,
+        (Provider::Antigravity, true) => 0x53b99d,
+        (Provider::OpenCode, false) => 0x68707c,
+        (Provider::OpenCode, true) => 0xb4bcc8,
     }
 }
 pub fn tint(provider: Provider, dark: bool) -> u32 {
@@ -59,6 +64,12 @@ pub fn tint(provider: Provider, dark: bool) -> u32 {
         (Provider::Codex, true) => 0x1c3a4c,
         (Provider::Claude, true) => 0x4a3214,
         (Provider::Cursor, true) => 0x3c2e4a,
+        (Provider::Kiro, false) => 0xf8e6f0,
+        (Provider::Kiro, true) => 0x482338,
+        (Provider::Antigravity, false) => 0xe1f3ed,
+        (Provider::Antigravity, true) => 0x193d32,
+        (Provider::OpenCode, false) => 0xeceef1,
+        (Provider::OpenCode, true) => 0x323944,
     }
 }
 pub fn body_font() -> &'static str {
@@ -118,7 +129,7 @@ pub fn panel(theme: Theme) -> Div {
         .bg(rgb(theme.panel))
         .border_1()
         .border_color(rgb(theme.line))
-        .rounded(px(4.))
+        .rounded(px(8.))
         .p(px(18.))
 }
 pub fn dot(provider: Provider, dark: bool) -> Div {
@@ -157,6 +168,9 @@ impl gpui::AssetSource for Assets {
             "codex" => Some(include_bytes!("../../assets/providers/codex.svg")),
             "claude" => Some(include_bytes!("../../assets/providers/claude.svg")),
             "cursor" => Some(include_bytes!("../../assets/providers/cursor.svg")),
+            "kiro" => Some(include_bytes!("../../assets/providers/kiro.svg")),
+            "antigravity" => Some(include_bytes!("../../assets/providers/antigravity.svg")),
+            "opencode" => Some(include_bytes!("../../assets/providers/opencode.svg")),
             _ => None,
         };
         if let Some(logo) = provider_logo {

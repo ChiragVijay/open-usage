@@ -1,3 +1,5 @@
+mod layout;
+mod table;
 mod theme;
 mod tray;
 mod views;
@@ -5,6 +7,7 @@ mod window;
 
 use chrono::Utc;
 use gpui::{div, prelude::*, px, rgb, *};
+use gpui_component::input::{InputEvent, InputState};
 use open_usage::{
     analytics::{self, Period},
     config::Config,
@@ -16,6 +19,7 @@ use std::{
     sync::mpsc::{self, Receiver, Sender},
     time::{Duration, Instant},
 };
+use table::{Column, CostFilter, Sort, Table};
 use theme::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -51,10 +55,14 @@ impl Page {
 }
 #[derive(Clone)]
 enum UiAction {
+    Noop,
     Page(Page),
     Period(Period),
     Provider(Option<Provider>),
     AccountActivity(Provider),
+    Sort(Table, Column),
+    CostFilter(Table, CostFilter),
+    ClearFilters(Table),
     Refresh,
     Export,
     Privacy,
@@ -101,6 +109,13 @@ pub struct Dashboard {
     compact: bool,
     pending_size: Option<Size<Pixels>>,
     activity_page: usize,
+    model_query: Entity<InputState>,
+    activity_query: Entity<InputState>,
+    model_sort: Sort,
+    activity_sort: Sort,
+    model_cost: CostFilter,
+    activity_cost: CostFilter,
+    _input_subscriptions: Vec<Subscription>,
     /// `None` shows as many rows as fit in the window.
     activity_rows: Option<usize>,
     detail: Option<String>,
@@ -138,6 +153,29 @@ impl Dashboard {
                 true
             }
         });
+        let model_query = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Search models or accounts")
+                .clean_on_escape()
+        });
+        let activity_query = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Search models, accounts or projects")
+                .clean_on_escape()
+        });
+        let input_subscriptions = vec![
+            cx.subscribe(&model_query, |_, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            }),
+            cx.subscribe(&activity_query, |view, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    view.activity_page = 0;
+                    cx.notify();
+                }
+            }),
+        ];
         let mut view = Self {
             config,
             live,
@@ -160,6 +198,13 @@ impl Dashboard {
             compact: false,
             pending_size: None,
             activity_page: 0,
+            model_query,
+            activity_query,
+            model_sort: Sort::new(Column::Tokens),
+            activity_sort: Sort::new(Column::Time),
+            model_cost: CostFilter::All,
+            activity_cost: CostFilter::All,
+            _input_subscriptions: input_subscriptions,
             activity_rows: None,
             detail: None,
         };
@@ -375,8 +420,24 @@ impl Dashboard {
             .unwrap_or_else(|| "—".into())
     }
     fn cost_caption(&self, totals: &analytics::Totals) -> String {
+        if totals.events == 0 {
+            return "No usage".into();
+        }
         if totals.reported_rows + totals.estimated_rows > 0 {
-            return totals.cost_note().into();
+            let caption = match (totals.reported_rows, totals.estimated_rows) {
+                (_, 0) => "Reported",
+                (0, _) => "Estimated · API rates",
+                _ => "Reported + estimated",
+            };
+            return if totals.events > totals.reported_rows + totals.estimated_rows {
+                match (totals.reported_rows, totals.estimated_rows) {
+                    (_, 0) => "Partial · reported".into(),
+                    (0, _) => "Partial · estimated".into(),
+                    _ => "Partial · reported + estimated".into(),
+                }
+            } else {
+                caption.into()
+            };
         }
         match open_usage::pricing::state() {
             open_usage::pricing::RateState::Loading => "Loading model rates".into(),
@@ -386,8 +447,8 @@ impl Dashboard {
     }
     fn event_cost(&self, record: &open_usage::model::UsageRecord) -> (String, &'static str) {
         match analytics::record_cost(record) {
-            Some((cost, false)) => (self.money(cost), "From the account"),
-            Some((cost, true)) => (self.money(cost), "Public API rate"),
+            Some((cost, false)) => (self.money(cost), "Reported"),
+            Some((cost, true)) => (self.money(cost), "Estimated · API rate"),
             None => ("—".into(), "No public rate"),
         }
     }
@@ -452,13 +513,14 @@ impl Dashboard {
     }
     fn perform(&mut self, action: UiAction, window: &mut Window, cx: &mut Context<Self>) {
         match action {
+            UiAction::Noop => {}
             UiAction::Page(page) => {
                 self.page = page;
                 if page == Page::Overview {
                     self.provider = None;
                 }
                 self.detail = None;
-                if self.compact || window.viewport_size().width < px(850.) {
+                if self.compact {
                     self.compact = false;
                     self.resize_window(window, size(px(1280.), px(860.)));
                 }
@@ -479,8 +541,41 @@ impl Dashboard {
                 self.provider = Some(provider);
                 self.page = Page::Activity;
                 self.activity_page = 0;
+                self.activity_cost = CostFilter::All;
+                self.activity_query
+                    .update(cx, |input, cx| input.set_value("", window, cx));
                 self.detail = None;
                 window.focus(&self.focus);
+            }
+            UiAction::Sort(table, column) => match table {
+                Table::Models => self.model_sort.select(column),
+                Table::Activity => {
+                    self.activity_sort.select(column);
+                    self.activity_page = 0;
+                }
+            },
+            UiAction::CostFilter(table, filter) => match table {
+                Table::Models => self.model_cost = filter,
+                Table::Activity => {
+                    self.activity_cost = filter;
+                    self.activity_page = 0;
+                }
+            },
+            UiAction::ClearFilters(table) => {
+                self.provider = None;
+                match table {
+                    Table::Models => {
+                        self.model_cost = CostFilter::All;
+                        self.model_query
+                            .update(cx, |input, cx| input.set_value("", window, cx));
+                    }
+                    Table::Activity => {
+                        self.activity_cost = CostFilter::All;
+                        self.activity_page = 0;
+                        self.activity_query
+                            .update(cx, |input, cx| input.set_value("", window, cx));
+                    }
+                }
             }
             UiAction::Export => {
                 if let Some(path) = rfd::FileDialog::new()
@@ -488,9 +583,13 @@ impl Dashboard {
                     .set_file_name("usage.csv")
                     .save_file()
                 {
+                    let filtered = (self.page == Page::Activity).then(|| Snapshot {
+                        records: self.activity_records(cx).into_iter().cloned().collect(),
+                        ..Default::default()
+                    });
                     match analytics::export_csv(
                         &path,
-                        self.data(),
+                        filtered.as_ref().unwrap_or(self.data()),
                         &self.config,
                         self.period,
                         self.provider,
@@ -502,6 +601,10 @@ impl Dashboard {
             }
             UiAction::Privacy => {
                 self.config.privacy = !self.config.privacy;
+                if self.config.privacy {
+                    self.activity_query
+                        .update(cx, |input, cx| input.set_value("", window, cx));
+                }
                 self.save(cx);
                 self.update_tray();
             }
@@ -576,6 +679,9 @@ impl Dashboard {
                     Provider::Codex => "https://chatgpt.com/codex/settings/usage",
                     Provider::Claude => "https://claude.ai/settings/usage",
                     Provider::Cursor => "https://cursor.com/dashboard?tab=usage",
+                    Provider::Kiro => "https://app.kiro.dev/",
+                    Provider::Antigravity => "https://antigravity.google/",
+                    Provider::OpenCode => "https://opencode.ai/zen",
                 };
                 if open::that(url).is_err() {
                     self.message("The provider dashboard could not be opened", cx);
@@ -629,6 +735,19 @@ impl Dashboard {
     fn key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
         let mods = event.keystroke.modifiers;
+        let typing = self
+            .model_query
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+            || self
+                .activity_query
+                .read(cx)
+                .focus_handle(cx)
+                .is_focused(window);
+        if typing && !mods.control && !mods.platform {
+            return;
+        }
         let action = if (mods.control || mods.platform) && mods.shift {
             match key {
                 "1" => Some(UiAction::Period(Period::TwoHours)),
@@ -678,30 +797,35 @@ impl Dashboard {
 impl Render for Dashboard {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme();
-        let content = if self.compact || window.viewport_size().width < px(850.) {
+        let viewport = window.viewport_size();
+        let width = f32::from(viewport.width);
+        let height = f32::from(viewport.height);
+        let rail = width < 1000.;
+        let content = if self.compact {
             self.compact_view(cx).into_any_element()
         } else {
             let page = match self.page {
-                Page::Overview => self.overview(cx),
-                Page::Activity => self.activity(f32::from(window.viewport_size().height), cx),
-                Page::Models => self.models_view(cx),
-                Page::Limits => self.limits_view(cx),
+                Page::Overview => self.overview(width, height, cx),
+                Page::Activity => self.activity(width, height, cx),
+                Page::Models => self.models_view(width, cx),
+                Page::Limits => self.limits_view(width, cx),
                 Page::Connections => self.connections(cx),
                 Page::Settings => self.settings(cx),
             };
             div()
                 .flex()
                 .size_full()
-                .child(self.sidebar(cx))
+                .child(self.sidebar(rail, cx))
                 .child(
                     div()
                         .flex_1()
                         .min_w_0()
                         .flex()
                         .flex_col()
-                        .child(self.header(cx))
+                        .child(self.header(width < 900., cx))
                         .child({
-                            let pinned = self.page == Page::Activity;
+                            let pinned =
+                                matches!(self.page, Page::Overview | Page::Activity | Page::Models);
                             div()
                                 .id(SharedString::from(format!(
                                     "main-scroll-{}",
@@ -709,7 +833,7 @@ impl Render for Dashboard {
                                 )))
                                 .flex_1()
                                 .min_h_0()
-                                .p(px(24.))
+                                .p(px(layout::page_padding(width, height)))
                                 .when(pinned, |region| region.flex().flex_col().overflow_hidden())
                                 .when(!pinned, |region| region.overflow_y_scroll())
                                 .child(page)

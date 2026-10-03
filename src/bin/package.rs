@@ -34,6 +34,14 @@ fn run() -> Result<()> {
             let portable = output.join("Open Usage-windows");
             fs::create_dir_all(&portable)?;
             fs::copy(
+                root.join("docs/licenses/OpenUsage-MIT.txt"),
+                portable.join("OpenUsage-MIT.txt"),
+            )?;
+            fs::copy(
+                root.join("docs/licenses/OpenUsage-Windows-MIT.txt"),
+                portable.join("OpenUsage-Windows-MIT.txt"),
+            )?;
+            fs::copy(
                 root.join("target/release/open-usage.exe"),
                 portable.join("Open Usage.exe"),
             )?;
@@ -50,6 +58,14 @@ fn run() -> Result<()> {
             let resources = contents.join("Resources");
             fs::create_dir_all(&binaries)?;
             fs::create_dir_all(&resources)?;
+            fs::copy(
+                root.join("docs/licenses/OpenUsage-MIT.txt"),
+                resources.join("OpenUsage-MIT.txt"),
+            )?;
+            fs::copy(
+                root.join("docs/licenses/OpenUsage-Windows-MIT.txt"),
+                resources.join("OpenUsage-Windows-MIT.txt"),
+            )?;
             fs::copy(
                 root.join("target/release/open-usage"),
                 binaries.join("open-usage"),

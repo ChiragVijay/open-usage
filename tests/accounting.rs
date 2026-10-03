@@ -39,6 +39,45 @@ fn token_line(total: u64, input: u64, cache: u64, output: u64) -> String {
 }
 
 #[test]
+fn model_sessions_count_unique_sessions_per_account_and_model() {
+    let first = record("model-a");
+    let mut repeated = first.clone();
+    repeated.id = "repeated".into();
+    let mut second_session = first.clone();
+    second_session.session = "second".into();
+    let second_model = record("model-b");
+    let mut other_account = first.clone();
+    other_account.provider = Provider::Claude;
+    let mut missing_session = first.clone();
+    missing_session.session.clear();
+    let snapshot = Snapshot {
+        records: vec![
+            first,
+            repeated,
+            second_session,
+            second_model,
+            other_account,
+            missing_session,
+        ],
+        ..Default::default()
+    };
+    let analysis = analytics::analyze(&snapshot, &Config::default(), Period::Day, None, Utc::now());
+    let count = |provider, model| {
+        analysis
+            .models
+            .iter()
+            .find(|r| r.provider == provider && r.model == model)
+            .unwrap()
+            .totals
+            .sessions
+    };
+    assert_eq!(count(Provider::Codex, "model-a"), 2);
+    assert_eq!(count(Provider::Codex, "model-b"), 1);
+    assert_eq!(count(Provider::Claude, "model-a"), 1);
+    assert_eq!(analysis.totals.sessions, 3);
+}
+
+#[test]
 fn codex_cumulative_counts_and_repeated_snapshots_do_not_double_count() {
     let lines = [
         json!({"type":"session_meta","payload":{"id":"session-1","cwd":"C:\\dev\\atlas"}})

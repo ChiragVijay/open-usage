@@ -143,14 +143,14 @@ pub struct ModelRow {
 pub struct Bucket {
     pub start: DateTime<Utc>,
     pub end: DateTime<Utc>,
-    pub cost: [f64; 3],
-    pub cost_rows: [usize; 3],
-    pub tokens: [u64; 3],
+    pub cost: [f64; Provider::COUNT],
+    pub cost_rows: [usize; Provider::COUNT],
+    pub tokens: [u64; Provider::COUNT],
 }
 #[derive(Debug, Clone)]
 pub struct Analysis {
     pub totals: Totals,
-    pub providers: [Totals; 3],
+    pub providers: [Totals; Provider::COUNT],
     pub models: Vec<ModelRow>,
     pub buckets: Vec<Bucket>,
 }
@@ -206,13 +206,14 @@ pub fn analyze(
             .map(|d| Bucket {
                 start: first + Duration::seconds(d * interval),
                 end: (first + Duration::seconds((d + 1) * interval)).min(now),
-                cost: [0.0; 3],
-                cost_rows: [0; 3],
-                tokens: [0; 3],
+                cost: [0.0; Provider::COUNT],
+                cost_rows: [0; Provider::COUNT],
+                tokens: [0; Provider::COUNT],
             })
             .collect(),
     };
     let mut models: BTreeMap<(Provider, String), Totals> = BTreeMap::new();
+    let mut model_sessions: BTreeMap<(Provider, String), BTreeSet<String>> = BTreeMap::new();
     let mut sessions = BTreeSet::new();
     for record in &snapshot.records {
         if !config.enabled[record.provider.index()]
@@ -233,6 +234,10 @@ pub fn analyze(
         );
         if !record.session.is_empty() {
             sessions.insert((record.provider, record.session.clone()));
+            model_sessions
+                .entry((record.provider, record.model.clone()))
+                .or_default()
+                .insert(record.session.clone());
         }
         let index = ((record.timestamp - first).num_seconds() / interval).min(bucket_count - 1);
         if let Some(bucket) = usize::try_from(index)
@@ -253,10 +258,15 @@ pub fn analyze(
     }
     analysis.models = models
         .into_iter()
-        .map(|((provider, model), totals)| ModelRow {
-            model,
-            provider,
-            totals,
+        .map(|((provider, model), mut totals)| {
+            totals.sessions = model_sessions
+                .get(&(provider, model.clone()))
+                .map_or(0, BTreeSet::len);
+            ModelRow {
+                model,
+                provider,
+                totals,
+            }
         })
         .collect();
     analysis

@@ -17,7 +17,7 @@ fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!(
-            "usage [--refresh] [--online|--offline] [--json] [--period 2h|24h|7d|30d|90d|today] [--days 1|7|30|90]\n\nAccount usage and cached subscription allowances. Costs are provider reported; model prices are never inferred. --online checks existing account logins for this invocation; --offline reads local history only.\nNo prompts, conversations, or credentials are printed."
+            "usage [--refresh] [--online|--offline] [--json] [--period 2h|24h|7d|30d|90d|today] [--days 1|7|30|90]\n\nUsage and allowances for ChatGPT, Claude Code, Cursor, Kiro, Antigravity, and OpenCode. Costs use reported amounts or public API-rate estimates. --online checks existing logins; --offline reads local history and cached allowances.\nNo prompts, conversations, or credentials are printed."
         );
         return Ok(());
     }
@@ -66,7 +66,9 @@ fn run() -> Result<()> {
     if args.contains(&"--json".into()) {
         let accounts = snapshot.providers.iter().filter(|status| config.enabled[status.provider.index()] && (status.detected || status.connected || snapshot.records.iter().any(|record| record.provider == status.provider))).map(|status| {
             let totals = &analysis.providers[status.provider.index()];
-            serde_json::json!({"account":status.provider,"plan":status.plan,"reported_usage_cost_usd":totals.reported_spend(),"usage_cost_usd":totals.spend(),"cost_reporting_events":totals.reported_rows,"tokens":totals.tokens,"sessions":totals.sessions,"status":status})
+            let mut public_status = status.clone();
+            public_status.account_fingerprint = None;
+            serde_json::json!({"account":status.provider,"plan":status.plan,"reported_usage_cost_usd":totals.reported_spend(),"usage_cost_usd":totals.spend(),"cost_reporting_events":totals.reported_rows,"tokens":totals.tokens,"sessions":totals.sessions,"status":public_status})
         }).collect::<Vec<_>>();
         let models = analysis.models.iter().map(|row| serde_json::json!({"model":row.model,"account":row.provider,"tokens":row.totals.tokens,"reported_usage_cost_usd":row.totals.reported_spend(),"usage_cost_usd":row.totals.spend()})).collect::<Vec<_>>();
         println!(

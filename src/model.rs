@@ -7,15 +7,29 @@ pub enum Provider {
     Codex,
     Claude,
     Cursor,
+    Kiro,
+    Antigravity,
+    OpenCode,
 }
 
 impl Provider {
-    pub const ALL: [Self; 3] = [Self::Codex, Self::Claude, Self::Cursor];
+    pub const COUNT: usize = 6;
+    pub const ALL: [Self; Self::COUNT] = [
+        Self::Codex,
+        Self::Claude,
+        Self::Cursor,
+        Self::Kiro,
+        Self::Antigravity,
+        Self::OpenCode,
+    ];
     pub fn name(self) -> &'static str {
         match self {
             Self::Codex => "ChatGPT",
             Self::Claude => "Claude",
             Self::Cursor => "Cursor",
+            Self::Kiro => "Kiro",
+            Self::Antigravity => "Antigravity",
+            Self::OpenCode => "OpenCode",
         }
     }
     pub fn key(self) -> &'static str {
@@ -23,6 +37,9 @@ impl Provider {
             Self::Codex => "codex",
             Self::Claude => "claude",
             Self::Cursor => "cursor",
+            Self::Kiro => "kiro",
+            Self::Antigravity => "antigravity",
+            Self::OpenCode => "opencode",
         }
     }
     pub fn account_name(self) -> &'static str {
@@ -30,6 +47,9 @@ impl Provider {
             Self::Codex => "ChatGPT",
             Self::Claude => "Claude Code",
             Self::Cursor => "Cursor",
+            Self::Kiro => "Kiro",
+            Self::Antigravity => "Antigravity",
+            Self::OpenCode => "OpenCode",
         }
     }
     pub fn index(self) -> usize {
@@ -37,6 +57,9 @@ impl Provider {
             Self::Codex => 0,
             Self::Claude => 1,
             Self::Cursor => 2,
+            Self::Kiro => 3,
+            Self::Antigravity => 4,
+            Self::OpenCode => 5,
         }
     }
 }
@@ -79,11 +102,18 @@ pub struct UsageRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreditBalance {
+    pub used: f64,
+    pub limit: f64,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LimitWindow {
     pub label: String,
     pub used_percent: f64,
     pub resets_at: Option<DateTime<Utc>>,
     pub duration_minutes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credits: Option<CreditBalance>,
 }
 impl LimitWindow {
     pub fn remaining(&self) -> f64 {
@@ -108,6 +138,8 @@ pub struct ProviderStatus {
     #[serde(default)]
     pub installations: Vec<String>,
     pub sources: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_fingerprint: Option<String>,
 }
 impl ProviderStatus {
     pub fn empty(provider: Provider) -> Self {
@@ -122,6 +154,7 @@ impl ProviderStatus {
             detected: false,
             installations: vec![],
             sources: 0,
+            account_fingerprint: None,
         }
     }
 }
@@ -132,6 +165,23 @@ pub struct Snapshot {
     pub providers: Vec<ProviderStatus>,
     pub refreshed_at: Option<DateTime<Utc>>,
     pub notices: Vec<String>,
+}
+impl Snapshot {
+    /// Older caches may lack newly supported providers or use a different order.
+    pub fn normalize_providers(&mut self) {
+        let mut statuses: std::collections::BTreeMap<_, _> = std::mem::take(&mut self.providers)
+            .into_iter()
+            .map(|status| (status.provider, status))
+            .collect();
+        self.providers = Provider::ALL
+            .into_iter()
+            .map(|provider| {
+                statuses
+                    .remove(&provider)
+                    .unwrap_or_else(|| ProviderStatus::empty(provider))
+            })
+            .collect();
+    }
 }
 impl Default for Snapshot {
     fn default() -> Self {

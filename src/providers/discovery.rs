@@ -39,9 +39,30 @@ pub fn detect(provider: Provider, homes: &[PathBuf], env: &Environment) -> Vec<S
             "User/globalStorage/state.vscdb",
             "User/settings.json",
         ],
+        Provider::Kiro => &[
+            "data.sqlite3",
+            "kiro-auth-token.json",
+            "settings/cli.json",
+            "User/globalStorage/state.vscdb",
+        ],
+        Provider::Antigravity => &[
+            "conversations",
+            "antigravity-oauth-token",
+            "User/globalStorage/state.vscdb",
+        ],
+        Provider::OpenCode => &[
+            "auth.json",
+            "opencode.db",
+            "opencode-next.db",
+            "storage/message",
+        ],
     };
     for home in homes {
-        if markers.iter().any(|marker| home.join(marker).exists()) {
+        if markers.iter().any(|marker| home.join(marker).exists())
+            || (provider == Provider::OpenCode
+                && super::local::files(home, "opencode", ".db")
+                    .is_ok_and(|files| !files.is_empty()))
+        {
             evidence.insert(home.clone());
         }
     }
@@ -49,6 +70,9 @@ pub fn detect(provider: Provider, homes: &[PathBuf], env: &Environment) -> Vec<S
         Provider::Codex => &["codex"],
         Provider::Claude => &["claude"],
         Provider::Cursor => &["cursor", "cursor-agent", "agent"],
+        Provider::Kiro => &["kiro", "kiro-cli"],
+        Provider::Antigravity => &["antigravity", "agy"],
+        Provider::OpenCode => &["opencode"],
     };
     let search = env.path.iter().cloned().chain([
         env.home.join(".local/bin"),
@@ -83,14 +107,17 @@ pub fn detect(provider: Provider, homes: &[PathBuf], env: &Environment) -> Vec<S
             }
         }
     }
-    if provider == Provider::Cursor {
+    if matches!(
+        provider,
+        Provider::Cursor | Provider::Kiro | Provider::Antigravity | Provider::OpenCode
+    ) {
         for root in env
             .program_dirs
             .iter()
             .cloned()
             .chain([env.local_data.join("Programs")])
         {
-            let candidate = root.join("Cursor/Cursor.exe");
+            let candidate = root.join(format!("{0}/{0}.exe", provider.name()));
             if candidate.is_file() {
                 evidence.insert(candidate);
             }
@@ -118,6 +145,9 @@ pub fn detect(provider: Provider, homes: &[PathBuf], env: &Environment) -> Vec<S
         Provider::Codex => "Codex.app",
         Provider::Claude => "", // Claude Desktop is distinct from Claude Code.
         Provider::Cursor => "Cursor.app",
+        Provider::Kiro => "Kiro.app",
+        Provider::Antigravity => "Antigravity.app",
+        Provider::OpenCode => "OpenCode.app",
     };
     if !bundle.is_empty() {
         for root in &env.applications {
