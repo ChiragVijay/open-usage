@@ -1,128 +1,71 @@
 # Open Usage
 
-A native Rust + GPUI app for ChatGPT, Claude Code, Cursor, Kiro, Antigravity, and OpenCode. It discovers agents and account history on your machine, then shows tokens, cost, allowances, and reset times by account. Responsive cards and compact rows keep accounts visible together, with light and dark themes.
+A native Rust + GPUI app for tracking AI usage, costs, and account limits across ChatGPT (Codex), Claude Code, Cursor, Kiro, Antigravity, and OpenCode.
 
-![Six-provider homepage with example data](docs/images/homepage-six-providers-light.jpg)
+![Homepage with example data](docs/images/homepage-six-providers-light.jpg)
 
-![Dark six-provider homepage with example data](docs/images/homepage-six-providers-dark.jpg)
+[Dark theme preview](docs/images/homepage-six-providers-dark.jpg)
 
-## Accounting
+## Get started
 
-A provider-reported dollar amount is used when the account sends one. ChatGPT session logs store tokens and no price, so those rows use public per-token API rates (input, output, cache read, and cache write) from LiteLLM's model table, the same source t3code prices against. The table is cached on this device and downloaded again once a day. That figure is an API-equivalent estimate, not a subscription invoice. A model with no public rate stays **-**. Reported zero remains $0.
-
-- Cursor dashboard history/CSV supplies reported usage cost. Claude models used through Cursor belong to the **Cursor account**. They do not imply a Claude subscription.
-- ChatGPT local history supplies tokens. Its account endpoint supplies allowances and reset times. Cost is the public API rate for the recorded model.
-- Claude Code's saved `costUSD` is used when present. Streaming message repetitions count once. Records without that field use the public API rate when the model is known. Its account endpoint supplies allowances and reset times.
-- Kiro reports monthly, trial, and bonus **credits** with precise balances. Credits are not converted into tokens or dollars. Its IDE's local allowance cache keeps its original timestamp and is always marked cached.
-- Antigravity reports shared Gemini and Claude/GPT pools, each with session and weekly windows when available. Local generation databases supply measured tokens, including system input; cost is an API-equivalent estimate. Older quota APIs expose session pools only. Missing quota fields stay unknown.
-- OpenCode Go and Zen message costs and tokens belong to **OpenCode**. Go's account API supplies session, weekly, and monthly allowances. Verified ChatGPT OAuth calls in OpenCode belong to **ChatGPT**, with API-equivalent estimates; BYO OpenAI keys do not imply a ChatGPT subscription. Migrated messages and copies across release channels count once.
-- Provider-reported usage cost can include usage covered by a plan. It is not a subscription invoice, and does not include the subscription fee.
-- The Models page keeps the account attached to each model. The same model used through two accounts remains two rows.
-- Codex cumulative counters and Claude streaming blocks are reconciled; cached input is counted once. Incomplete rows are retried. No missing tokens are estimated from conversation text.
-- The dashboard supports rolling **2 hours, 24 hours, 7 days, 30 days, and 90 days**. Short views use 5-minute/hourly chart buckets; longer views use daily buckets. The quick view and tray use Today, starting at local midnight. Elapsed ranges remain correct across daylight-saving changes.
-- Cached and expired allowances are marked. Expired windows require refresh; quota replenishment is never invented.
-
-The Accounts and tray views include agents with real installation evidence, available history, or an active account connection. A detected agent with no usage shows an empty reading. Missing providers do not get placeholder accounts or statistics.
-
-The Accounts homepage shows six providers together at desktop sizes without paging. Wide windows show account cards with additional allowances; smaller windows use compact rows with the main allowance windows. The chart uses the remaining height and narrow windows use an icon sidebar. **Limits** exposes every reported allowance. When the screen cannot fit every account, a bounded account region scrolls while the summary and chart stay visible. Quick view opens only when selected or through the tray.
-
-Models and Activity have case-insensitive search, account and cost-source filters, and a Clear action. Click a column name to sort; click again to reverse the order. Numeric columns sort by raw values, missing costs stay last, and Activity sorts all matching events before pagination. Wider Models tables show input, output, cache read/write, and distinct sessions per model. Narrow tables keep the model, account, tokens and cost readable.
-
-## Run
-
-Install Rust **1.97.1** or run `mise install`:
+Install Rust **1.97.1** (or run `mise install`), then launch an optimized build:
 
 ```sh
-cargo run --bin open-usage
+cargo run --release --bin open-usage
 ```
 
-Windows requires Visual Studio Build Tools with Desktop development with C++ and a Windows SDK. macOS requires Xcode command-line tools and the macOS SDK. GPUI renders native GPU UI. Longbridge's `gpui-component` 0.5 supplies native controls compatible with GPUI 0.2.2; the application contains no webview or JavaScript runtime.
+Windows requires Visual Studio Build Tools with Desktop development with C++ and a Windows SDK. macOS requires Xcode command-line tools.
 
-Mise tasks: `dev`, `check`, `test`, `lint`, `build`, `package`.
+Sign in through your provider's app or CLI. Open Usage discovers existing logins and local history automatically. Use **Connections** to add a data folder or import a Cursor CSV.
 
-## Connections
-
-Agent discovery and local history scanning run automatically. Discovery checks PATH executables, common installation locations, macOS app bundles, standard data folders, environment home overrides, and additional folders you select. It reads filesystem metadata without running agents or exposing credentials. Claude Desktop is not mistaken for Claude Code; unrelated commands named `agent` are not mistaken for Cursor.
-
-New configurations check existing signed-in accounts automatically. No API key is required for subscription logins.
-
-| Account | History | Allowances |
-| --- | --- | --- |
-| ChatGPT | `CODEX_HOME` or `~/.codex`, including archived sessions | Existing `codex login` |
-| Claude Code | `CLAUDE_CONFIG_DIR` or `~/.claude/projects`, including subagents | Claude Code OAuth credentials or macOS Keychain |
-| Cursor | Cursor dashboard API, up to 90 days, or a CSV export | Existing Cursor CLI/desktop login |
-| Kiro | Credit allowances; no fabricated token history | Kiro CLI `data.sqlite3` login or IDE's `kiro-auth-token.json`; IDE cache for offline reads |
-| Antigravity | `~/.gemini/antigravity*/conversations/*.db` | Running IDE/`agy` language server, then existing OAuth credentials and Google Cloud Code |
-| OpenCode | `opencode*.db`, including v1/v2 message tables and completed compactions | Existing Go key in the current credential table or legacy `auth.json` |
-
-**Add folder** accepts a provider home such as `.codex`. Additional folders contribute local history; live allowances use the first discoverable login for that provider. Cursor CSV replaces API history to avoid duplication and references the selected file in place.
-
-ChatGPT support means Codex usage associated with the ChatGPT account. Claude support means Claude Code. Cursor account history spans machines; ChatGPT and Claude token histories reflect this device.
-
-OpenCode uses `OPENCODE_DATA_DIR`, then `XDG_DATA_HOME/opencode`, then `~/.local/share/opencode`. Kiro CLI data uses the platform's `kiro-cli` data directory; its IDE uses the platform's `Kiro` settings folder and `~/.aws/sso/cache/kiro-auth-token.json`. Antigravity supports both `Antigravity` and `Antigravity IDE` settings folders. Additional folders can point to an agent's store, including a WSL-mounted Kiro CLI directory. `OPEN_USAGE_<PROVIDER>_HOME` replaces automatic roots with an explicit store for that provider (for example `OPEN_USAGE_ANTIGRAVITY_HOME`); selected additional folders still contribute.
-
-Provider databases and credential stores are opened read-only. Credentials authenticate fixed provider HTTPS endpoints; Antigravity's local RPC stays on `127.0.0.1`, with certificate exceptions confined to that loopback client. Credentials are never written to disk, exported, or logged. Kiro and Antigravity can renew supported OAuth logins; derived tokens remain in memory, bound to the current login. For Kiro, Antigravity, and OpenCode, account switches and logout invalidate cached live allowances. Requests contain authentication and usage-query parameters; **local history, tokens, session records, prompts, and conversations are never uploaded**. There is no analytics endpoint or cloud database. The public pricing download receives no usage data. macOS Keychain may display its own permission prompt. Unavailable or revoked logins require signing in again using the provider's app or CLI.
-
-## Tray and menu bar
-
-The Windows system tray and macOS menu bar provide:
-
-- Left-click: account quick view.
-- Menu: open accounts, quick view, refresh in the background, quit.
-- Tooltip: today's tokens and remaining account allowances.
-- macOS menu-bar title: remaining account allowances.
-
-Closing the window keeps background tracking active when a tray icon is available. If initialization fails, the app reports the failure in Settings and closing the window quits. **Settings -> System tray / Menu bar** reports the actual initialization status.
-
-| Shortcut | Action |
+| Provider | Connection |
 | --- | --- |
-| Ctrl/Cmd + 1-6 | Accounts, Models, Limits, Activity, Connections, Settings |
-| Ctrl/Cmd + Shift + 1-5 | 2 hours, 24 hours, 7 days, 30 days, 90 days |
-| Ctrl/Cmd + R | Refresh |
-| Ctrl/Cmd + P | Display privacy mode |
-| Ctrl/Cmd + Q | Quit |
-| C / T | Usage-cost / token chart (outside search fields) |
-| L | Limits |
-| Tab / Shift+Tab, Enter | Navigate and activate controls |
+| ChatGPT | Codex login and local session history |
+| Claude Code | Claude Code OAuth login and local history |
+| Cursor | Cursor desktop/CLI login or dashboard CSV |
+| Kiro | Kiro CLI or IDE login; usage is reported in credits |
+| Antigravity | IDE/`agy` connection or existing OAuth login; local generation history |
+| OpenCode | Local Go/Zen history; a Go key supplies account limits |
 
-CSV export respects the selected account and date range. Activity exports also respect search, cost-source filtering and sort order, across all matching pages. It includes actual metadata while display privacy mode is enabled, and never includes prompts or credentials.
+Kiro, Antigravity, and OpenCode quota parsing is fixture-tested; signed-in live checks and macOS execution still need validation.
 
-## CLI and storage
+## Using the app
+
+- **Accounts** shows usage totals, current allowances, reset times, and a usage chart. **Limits** shows every reported allowance.
+- **Models**, **Activity**, and **Insights** provide breakdowns. Search and filter tables, click column headings to sort, and export Activity to CSV.
+- Choose **2 hours, 24 hours, 7 days, 30 days, or 90 days**. The tray's quick view uses Today.
+- Adjust automatic refresh, theme, and display privacy in **Settings**. Display privacy hides figures on screen; CSV exports contain actual values.
+- Closing the window keeps tracking active when the tray is available. Use **Ctrl/Cmd + Q** to quit and **Ctrl/Cmd + R** to refresh.
+
+## Costs and privacy
+
+Costs use provider-reported amounts when available, otherwise public API-rate estimates from [LiteLLM](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json). Estimates are not subscription bills and exclude subscription fees. Unknown prices stay **-**; Kiro credits stay separate from tokens and dollars. Cached or expired allowances are marked.
+
+History and settings stay on your device. Provider stores are read-only; existing credentials are used for account checks. Prompts, conversations, and usage records are never uploaded. There is no telemetry. Network requests check provider allowances/history and download model prices.
+
+## CLI
 
 ```sh
-cargo run --no-default-features --bin usage -- --refresh --json
-cargo run --no-default-features --bin usage -- --online --days 7
-cargo run --no-default-features --bin usage -- --offline --period 2h --json
+cargo run --release --no-default-features --bin usage -- --online --period 7d --json
 ```
 
-`--online` checks accounts for that invocation without changing preferences; `--offline` reads local history and cached account data. `--period` accepts `2h`, `24h`, `7d`, `30d`, `90d`, and `today`. `--days 1` means the past 24 hours. JSON schema **open-usage.v2** includes the selected period and exact start/end timestamps, account discovery status, summaries, allowances, tokens, models, `reported_usage_cost_usd`, and `usage_cost_usd`. A missing reported cost is `null`. `usage_cost_usd` adds the LiteLLM estimate for rows the account did not price.
+Use `--offline --refresh` to read local history and cached allowances. Periods: `2h`, `24h`, `7d`, `30d`, `90d`, or `today`. Run with `--help` for options.
 
-Settings and the SQLite metadata cache live in `%LOCALAPPDATA%/open-usage` on Windows and `~/Library/Application Support/open-usage` on macOS. `OPEN_USAGE_DATA_DIR` redirects both for testing. Stored metadata includes source paths, tokens, timestamps and reported usage cost; credentials and conversations are excluded. There is no telemetry or hosted backend.
+Settings and cache live in `%LOCALAPPDATA%/open-usage` on Windows or `~/Library/Application Support/open-usage` on macOS. `OPEN_USAGE_DATA_DIR` overrides that location.
 
-History scans and account checks run off the UI thread. **Settings -> Data -> Automatic refresh** defaults to **30 minutes**, with **5 minutes, 10 minutes, 30 minutes, or 1 hour** available. The choice is saved across launches. Existing supported choices are preserved; legacy 1- and 15-minute intervals switch to 30 minutes. Unchanged files reuse normalized cached records; changed files are re-read. Parser upgrades invalidate normalized file caches while preserving account history. Failed checks preserve prior data and mark account readings cached. Existing settings remain compatible; obsolete pricing overrides are ignored.
-
-## Build and verify
+## Development
 
 ```sh
 cargo fmt --check
-cargo check --all-targets
-cargo test --no-default-features
 cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
 cargo run --bin package
 ```
 
-Packaging builds on the current host: `dist/Open Usage-windows/` on Windows, or `dist/Open Usage.app` and `dist/usage` on macOS. macOS signing/notarization are not configured. There are no GitHub Actions.
+Packaging creates a release build in `dist/` for the current platform. macOS signing and notarization are not configured.
 
-Windows compilation, the six-provider dashboard, local SQLite/protobuf accounting, CLI export, live Codex/Cursor reads, tray initialization, close-to-tray and quick-view sizing have been verified. Kiro credit schemas, Antigravity quota schemas, and OpenCode Go schemas are fixture-tested. Authenticated live reads for the three new providers, macOS execution, Keychain access and a live Claude account still need validation.
+## Credits
 
-## References
+Built with [GPUI](https://gpui.rs/) and [gpui-component](https://github.com/longbridge/gpui-component). Provider integrations and design reference [OpenUsage](https://github.com/robinebers/openusage), its [Windows fork](https://github.com/mesomya/openusage-windows), [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), and [t3code](https://github.com/pingdotgg/t3code).
 
-[OpenUsage](https://www.openusage.ai/), [t3code's usage documentation](https://github.com/pingdotgg/t3code/blob/54084ae1e6c32809db040e4fa571c80fdf2d8ae4/docs/user/usage.md), and [Longbridge GPUI components](https://github.com/longbridge/gpui-component) inform the design and provider schemas. This is an independent Rust implementation.
-
-The bundled provider SVG marks come from [OpenUsage's provider icon assets](https://github.com/robinebers/openusage/tree/main/Sources/OpenUsage/Resources/ProviderIcons) and the [Kiro adapter in its Windows fork](https://github.com/mesomya/openusage-windows/tree/main/plugins/kiro). They render locally in account rows, Connections, Limits, and the quick view, with colors suited to each theme.
-
-The new adapters follow [OpenUsage's Antigravity implementation](https://github.com/robinebers/openusage/tree/main/Sources/OpenUsage/Providers/Antigravity), [OpenCode implementation](https://github.com/robinebers/openusage/tree/main/Sources/OpenUsage/Providers/OpenCode), and [Kiro IDE adapter](https://github.com/mesomya/openusage-windows/tree/main/plugins/kiro). Kiro CLI storage and its usage operation were checked against [ai-usagebar's Kiro implementation](https://github.com/akitaonrails/ai-usagebar/tree/main/src/kiro), alongside [Kiro's slash-command documentation](https://kiro.dev/docs/reference/slash-commands/) and [AWS CreateToken](https://docs.aws.amazon.com/singlesignon/latest/OIDCAPIReference/API_CreateToken.html).
-
-Provider network code is separated under `src/providers`: Codex, Claude, and Cursor have individual adapters; Kiro, Antigravity, and OpenCode have dedicated folders separating authentication, quotas, and history where applicable. `live.rs` only dispatches checks. Shared SQLite, HTTP, protobuf, and token-renewal helpers contain no UI dependencies. SQLite cache fingerprints include WAL changes; failures retain measured history and retry incomplete reads. Legacy three-provider settings and cache entries migrate while preserving existing accounts.
-
-[t3code's pricing implementation](https://github.com/pingdotgg/t3code/blob/a8927712f8b3338fa3c47a0c657b6e11d7e9aaec/apps/server/src/usage/usagePricing.ts) prefers a provider-reported cost, then prices tokens with LiteLLM's public model table. This app follows that order. The estimate is not a subscription invoice.
+Provider SVGs come from OpenUsage and its Windows fork. Their [MIT notice](docs/licenses/OpenUsage-MIT.txt) and [Windows-fork notice](docs/licenses/OpenUsage-Windows-MIT.txt) are included in packaged builds.
