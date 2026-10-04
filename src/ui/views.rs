@@ -146,9 +146,9 @@ impl Dashboard {
         let theme = self.theme();
         let content = width - layout::sidebar_width(width);
         let updated = if self.refreshing {
-            "Refreshing…".to_string()
+            "Refreshing...".to_string()
         } else if self.loading {
-            "Loading history…".to_string()
+            "Loading history...".to_string()
         } else {
             self.data()
                 .refreshed_at
@@ -683,7 +683,7 @@ impl Dashboard {
             .into_iter()
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
-            .join(" · ");
+            .join(analytics::separator());
         let figure = |name: &str, value: String, size: f32| {
             div()
                 .flex_1()
@@ -1201,7 +1201,7 @@ impl Dashboard {
             }
         } else {
             format!(
-                "{}–{} of {}",
+                "{}-{} of {}",
                 start + 1,
                 (start + page_size).min(matched),
                 grouped(matched)
@@ -1421,7 +1421,7 @@ impl Dashboard {
                         .text_center()
                         .text_size(px(12.))
                         .text_color(rgb(theme.faint))
-                        .child("…"),
+                        .child("..."),
                 }),
             )
             .child(self.page_step(
@@ -1506,14 +1506,16 @@ impl Dashboard {
                             .child(title(record.model.clone(), theme).truncate())
                             .child(
                                 caption(
-                                    format!(
-                                        "{} · {} · {note}",
-                                        record.provider.name(),
+                                    [
+                                        record.provider.name().to_string(),
                                         record
                                             .timestamp
                                             .with_timezone(&Local)
                                             .format("%b %-d, %H:%M:%S")
-                                    ),
+                                            .to_string(),
+                                        note,
+                                    ]
+                                    .join(analytics::separator()),
                                     theme,
                                 )
                                 .truncate(),
@@ -1756,7 +1758,7 @@ impl Dashboard {
         if parts.is_empty() {
             None
         } else {
-            Some(parts.join(" · "))
+            Some(parts.join(analytics::separator()))
         }
     }
     fn allowance_label(&self, status: &ProviderStatus) -> Option<String> {
@@ -2084,7 +2086,7 @@ impl Dashboard {
                     .items_center()
                     .child(caption(
                         if self.refreshing {
-                            "Refreshing…".into()
+                            "Refreshing...".into()
                         } else {
                             self.data()
                                 .refreshed_at
@@ -2172,17 +2174,21 @@ fn path_key(path: &std::path::Path) -> String {
         .to_lowercase()
 }
 fn reported_error(detail: &str) -> bool {
-    const KNOWN: &[&str] = &[
-        "Paused in Connections",
-        "Account history · across your machines",
-        "Local history + live account limits",
-        "Live account limits",
-        "Cached Cursor account history",
-        "Detected on this device · no local usage yet",
-        "Import a usage CSV or enable account checks",
-        "Connect a source to see usage",
+    let sep = analytics::separator();
+    let known = [
+        "Paused in Connections".to_string(),
+        format!("Account history{sep}across your machines"),
+        "Local history + live account limits".to_string(),
+        "Live account limits".to_string(),
+        "Cached Cursor account history".to_string(),
+        format!("Detected on this device{sep}no local usage yet"),
+        "Import a usage CSV or enable account checks".to_string(),
+        "Connect a source to see usage".to_string(),
     ];
-    if detail.is_empty() || KNOWN.contains(&detail) || detail.ends_with("history files · local") {
+    if detail.is_empty()
+        || known.iter().any(|item| item == detail)
+        || detail.ends_with(&format!("history files{sep}local"))
+    {
         return false;
     }
     !(detail.starts_with("Use ") && detail.contains("to create local history"))
@@ -2277,12 +2283,15 @@ mod tests {
     use super::reported_error;
 
     #[test]
-    fn status_lines_with_middle_dots_are_not_errors() {
-        assert!(!reported_error("Account history · across your machines"));
-        assert!(!reported_error(
-            "Detected on this device · no local usage yet"
-        ));
-        assert!(!reported_error("3 history files · local"));
+    fn status_lines_with_separators_are_not_errors() {
+        let sep = open_usage::analytics::separator();
+        assert!(!reported_error(&format!(
+            "Account history{sep}across your machines"
+        )));
+        assert!(!reported_error(&format!(
+            "Detected on this device{sep}no local usage yet"
+        )));
+        assert!(!reported_error(&format!("3 history files{sep}local")));
         assert!(reported_error("Sign in expired"));
         assert!(!reported_error(""));
     }

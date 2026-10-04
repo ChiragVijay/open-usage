@@ -336,12 +336,13 @@ fn describe(
         return;
     }
     if !status.stale && status.checked_at.is_some() {
+        let sep = crate::analytics::separator();
         status.detail = if status.provider == Provider::Cursor {
-            "Account history · across your machines".into()
+            format!("Account history{sep}across your machines")
         } else if status.provider == Provider::Kiro {
             "Live credit allowance".into()
         } else if status.limits.is_empty() {
-            "Local history · no subscription limits reported".into()
+            format!("Local history{sep}no subscription limits reported")
         } else if status.sources > 0 || !history {
             "Local history + live account limits".into()
         } else {
@@ -356,10 +357,17 @@ fn describe(
         if status.provider == Provider::Cursor && !online {
             "Cached Cursor account history".into()
         } else {
-            format!("{} history files · local", status.sources)
+            format!(
+                "{} history files{}local",
+                status.sources,
+                crate::analytics::separator()
+            )
         }
     } else if status.detected {
-        "Detected on this device · no local usage yet".into()
+        format!(
+            "Detected on this device{}no local usage yet",
+            crate::analytics::separator()
+        )
     } else if status.provider == Provider::Cursor {
         "Import a usage CSV or enable account checks".into()
     } else {

@@ -293,14 +293,14 @@ impl Dashboard {
     }
     fn money(&self, value: f64) -> String {
         if self.config.privacy {
-            "••••".into()
+            analytics::hidden_value().into()
         } else {
             format!("${value:.2}")
         }
     }
     fn number(&self, value: u64) -> String {
         if self.config.privacy {
-            "••••".into()
+            analytics::hidden_value().into()
         } else {
             analytics::compact(value)
         }
@@ -523,19 +523,20 @@ impl Dashboard {
             return "No usage".into();
         }
         if totals.reported_rows + totals.estimated_rows > 0 {
+            let sep = analytics::separator();
             let caption = match (totals.reported_rows, totals.estimated_rows) {
-                (_, 0) => "Reported",
-                (0, _) => "Estimated · API rates",
-                _ => "Reported + estimated",
+                (_, 0) => "Reported".to_string(),
+                (0, _) => format!("Estimated{sep}API rates"),
+                _ => "Reported + estimated".to_string(),
             };
             return if totals.events > totals.reported_rows + totals.estimated_rows {
                 match (totals.reported_rows, totals.estimated_rows) {
-                    (_, 0) => "Partial · reported".into(),
-                    (0, _) => "Partial · estimated".into(),
-                    _ => "Partial · reported + estimated".into(),
+                    (_, 0) => format!("Partial{sep}reported"),
+                    (0, _) => format!("Partial{sep}estimated"),
+                    _ => format!("Partial{sep}reported + estimated"),
                 }
             } else {
-                caption.into()
+                caption
             };
         }
         match open_usage::pricing::state() {
@@ -544,11 +545,14 @@ impl Dashboard {
             open_usage::pricing::RateState::Ready => "No public rate".into(),
         }
     }
-    fn event_cost(&self, record: &open_usage::model::UsageRecord) -> (String, &'static str) {
+    fn event_cost(&self, record: &open_usage::model::UsageRecord) -> (String, String) {
         match analytics::record_cost(record) {
-            Some((cost, false)) => (self.money(cost), "Reported"),
-            Some((cost, true)) => (self.money(cost), "Estimated · API rate"),
-            None => (analytics::empty_value().into(), "No public rate"),
+            Some((cost, false)) => (self.money(cost), "Reported".into()),
+            Some((cost, true)) => (
+                self.money(cost),
+                format!("Estimated{}API rate", analytics::separator()),
+            ),
+            None => (analytics::empty_value().into(), "No public rate".into()),
         }
     }
     /// Uses the cached figures for today; runs again whenever they are recomputed.
@@ -602,7 +606,7 @@ impl Dashboard {
                                 })
                         })
                         .collect::<Vec<_>>()
-                        .join(" · ")
+                        .join(analytics::separator())
                 };
                 tray.icon.set_title(Some(if title.is_empty() {
                     "Open Usage".into()
@@ -699,7 +703,7 @@ impl Dashboard {
                         .flatten();
                     let (data, config) = (self.live.clone(), self.config.clone());
                     let (period, provider) = (self.period, self.provider);
-                    self.message("Exporting…", cx);
+                    self.message("Exporting...", cx);
                     cx.spawn(async move |view, cx| {
                         let result = cx
                             .background_executor()
@@ -780,7 +784,7 @@ impl Dashboard {
                     .add_filter("Cursor usage export", &["csv"])
                     .pick_file()
                 {
-                    self.message("Reading Cursor export…", cx);
+                    self.message("Reading Cursor export...", cx);
                     cx.spawn(async move |view, cx| {
                         let read = path.clone();
                         let result = cx

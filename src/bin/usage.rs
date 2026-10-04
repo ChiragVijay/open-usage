@@ -78,11 +78,18 @@ fn run() -> Result<()> {
             )?
         );
     } else {
+        let sep = analytics::separator();
         println!(
-            "Open Usage · {}\nTokens: {} · Sessions: {}",
+            "Open Usage{sep}{}\n{}",
             period.label(),
-            analytics::compact(analysis.totals.tokens.total()),
-            analysis.totals.sessions
+            [
+                format!(
+                    "Tokens: {}",
+                    analytics::compact(analysis.totals.tokens.total())
+                ),
+                format!("Sessions: {}", analysis.totals.sessions),
+            ]
+            .join(sep)
         );
         for status in &snapshot.providers {
             let totals = &analysis.providers[status.provider.index()];
@@ -95,17 +102,20 @@ fn run() -> Result<()> {
                 .spend()
                 .map(|cost| format!("${cost:.2}"))
                 .unwrap_or_else(|| "No public rate".into());
+            let cost_label = if totals.estimated_rows > 0 && totals.reported_rows == 0 {
+                "API-equivalent cost"
+            } else {
+                "Cost"
+            };
             println!(
-                "{} · {} · {} tokens · {}: {}",
-                status.provider.account_name(),
-                status.plan.as_deref().unwrap_or("Plan unavailable"),
-                analytics::compact(totals.tokens.total()),
-                if totals.estimated_rows > 0 && totals.reported_rows == 0 {
-                    "API-equivalent cost"
-                } else {
-                    "Cost"
-                },
-                spend
+                "{}",
+                [
+                    status.provider.account_name().to_string(),
+                    status.plan.as_deref().unwrap_or("Plan unavailable").to_string(),
+                    format!("{} tokens", analytics::compact(totals.tokens.total())),
+                    format!("{cost_label}: {spend}"),
+                ]
+                .join(analytics::separator())
             );
         }
     }

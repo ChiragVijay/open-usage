@@ -464,8 +464,9 @@ impl Dashboard {
                     .children(hours.iter().enumerate().map(|(hour, value)| {
                         let share = *value as f64 / maximum as f64;
                         let tooltip = format!(
-                            "{} {hour:02}:00 · {} tokens",
+                            "{} {hour:02}:00{}{} tokens",
                             DAYS[day],
+                            analytics::separator(),
                             self.number(*value)
                         );
                         div()
@@ -528,7 +529,7 @@ impl Dashboard {
         };
         let show = |value: f64| {
             if self.config.privacy {
-                "••••".to_string()
+                analytics::hidden_value().to_string()
             } else if self.token_chart {
                 self.number(value as u64)
             } else {
@@ -572,7 +573,7 @@ impl Dashboard {
         let readout = show(Provider::ALL.iter().map(|p| per_account(p.index())).sum());
         let context = match hovered {
             Some(bucket) => format!(
-                "{} – {}",
+                "{} - {}",
                 self.period.bucket_label(bucket.start),
                 self.period.bucket_label(bucket.end)
             ),

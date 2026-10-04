@@ -78,12 +78,16 @@ impl Period {
             _ => 86400,
         }
     }
-    pub fn chart_title(self) -> &'static str {
-        match self {
-            Self::TwoHours => "Usage · 5-minute intervals",
-            Self::Today | Self::Day => "Usage · hourly",
-            _ => "Usage · daily",
-        }
+    pub fn chart_title(self) -> String {
+        format!(
+            "Usage{}{}",
+            separator(),
+            match self {
+                Self::TwoHours => "5-minute intervals",
+                Self::Today | Self::Day => "hourly",
+                _ => "daily",
+            }
+        )
     }
     pub fn bucket_label(self, at: DateTime<Utc>) -> String {
         at.with_timezone(&Local)
@@ -426,9 +430,21 @@ pub fn empty_value() -> &'static str {
     "-"
 }
 
+/// Spaces and a pipe, used wherever a middle dot used to separate two labels.
+/// A middle dot is two UTF-8 bytes, which a Windows-1252 console shows as `A` with a circumflex.
+pub fn separator() -> &'static str {
+    " | "
+}
+
+/// Privacy mask for amounts and counts.
+/// A bullet is three UTF-8 bytes, which a Windows console shows as garbage.
+pub fn hidden_value() -> &'static str {
+    "****"
+}
+
 #[cfg(test)]
 mod tests {
-    use super::empty_value;
+    use super::{empty_value, hidden_value, separator};
 
     #[test]
     fn empty_value_is_a_plain_hyphen() {
@@ -453,5 +469,18 @@ mod tests {
                 "empty value must not contain {piece:?}"
             );
         }
+    }
+
+    #[test]
+    fn separator_and_hidden_value_are_plain_ascii() {
+        assert_eq!(separator(), " | ");
+        assert!(separator().is_ascii());
+        assert_eq!(hidden_value(), "****");
+        assert!(hidden_value().is_ascii());
+        assert_eq!(
+            super::Period::Day.chart_title(),
+            format!("Usage{}hourly", separator())
+        );
+        assert!(super::Period::TwoHours.chart_title().is_ascii());
     }
 }

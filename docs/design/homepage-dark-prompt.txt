@@ -6,12 +6,12 @@ Dark palette: main #191B1F, sidebar and topbar #202227, account/chart surfaces #
 Exact labels and sample values, identical to source:
 Sidebar "Open Usage"; "Accounts" selected; "Models"; "Limits"; "Activity"; bottom "Connections"; "Settings"; "Auto refresh on".
 Header "Accounts"; "Updated just now"; "Dark"; "Refresh"; "Quick view".
-Heading "Your usage at a glance"; "3 accounts · Example data". Time options "2 hours", "24 hours", selected "7 days", "30 days", "90 days".
+Heading "Your usage at a glance"; "3 accounts | Example data". Time options "2 hours", "24 hours", selected "7 days", "30 days", "90 days".
 Summary "Total tokens", "24.3M", "Across 3 accounts"; "Usage cost", "$84.20", "$37.40 reported + $46.80 estimated"; "Sessions", "126", "Past 7 days".
 Section "Accounts", "Current allowances", "Manage connections".
-First card "ChatGPT / Codex", "ChatGPT Pro", "Live", "5-hour window", "72% left", "Resets in 2h 19m", "Weekly", "54% left", "Resets Tue, Oct 6", "Tokens", "11.4M", "Usage cost", "$46.80", "Estimated · API rates", "View activity".
+First card "ChatGPT / Codex", "ChatGPT Pro", "Live", "5-hour window", "72% left", "Resets in 2h 19m", "Weekly", "54% left", "Resets Tue, Oct 6", "Tokens", "11.4M", "Usage cost", "$46.80", "Estimated | API rates", "View activity".
 Second "Claude Code", "Claude Pro", "Live", "5-hour window", "18% left", "Resets in 46m", "Low allowance", "Weekly", "62% left", "Resets Mon, Oct 5", "Tokens", "7.1M", "Usage cost", "$12.60", "Reported", "View activity".
 Third "Cursor", "Cursor Pro", "Live", "Monthly", "59% left", "Resets Oct 13", "API usage", "38% left", "Resets Oct 13", "Tokens", "5.8M", "Usage cost", "$24.80", "Reported", "View activity".
-Chart "Usage over time", "Tokens · Past 7 days", toggle "Tokens" selected and "Cost", seven stacked bars labelled "Sep 26", "Sep 27", "Sep 28", "Sep 29", "Sep 30", "Oct 1", "Oct 2", y-axis "0", "2M", "4M", "6M", matching source bar heights and provider legend "ChatGPT / Codex", "Claude Code", "Cursor".
+Chart "Usage over time", "Tokens | Past 7 days", toggle "Tokens" selected and "Cost", seven stacked bars labelled "Sep 26", "Sep 27", "Sep 28", "Sep 29", "Sep 30", "Oct 1", "Oct 2", y-axis "0", "2M", "4M", "6M", matching source bar heights and provider legend "ChatGPT / Codex", "Claude Code", "Cursor".
 Footer "Usage cost excludes subscription fees. Estimates use public API rates.", "Local history stays on this device.", "Export CSV".
 Constraints: Preserve every section from the light screenshot, including full chart and footer. No extra content, no changed numbers or invented data. Example data clearly identified. Preserve the original layout with only theme adjustments.

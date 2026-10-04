@@ -61,7 +61,7 @@ impl Dashboard {
             .when_some(hovered, |row, bucket| {
                 row.child(caption(
                     format!(
-                        "{} – {}",
+                        "{} - {}",
                         self.period.bucket_label(bucket.start),
                         self.period.bucket_label(bucket.end)
                     ),
@@ -199,7 +199,7 @@ impl Dashboard {
         let tokens = totals.tokens.total();
         let share = |part: u64| {
             if self.config.privacy {
-                "••••".to_string()
+                analytics::hidden_value().to_string()
             } else if tokens == 0 {
                 analytics::empty_value().into()
             } else {
