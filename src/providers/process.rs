@@ -72,7 +72,8 @@ pub fn flag(command: &str, name: &str) -> Option<String> {
 pub fn servers() -> Vec<Server> {
     let mut processes: Vec<Process> = vec![];
     if cfg!(windows) {
-        let script = "@(Get-CimInstance Win32_Process -Filter \"Name LIKE 'language_server%' OR Name='agy.exe'\" | Where-Object { $_.CommandLine } | Select-Object ProcessId,CommandLine) | ConvertTo-Json -Compress";
+        // Piping a single process to ConvertTo-Json produces an object, not an array.
+        let script = "ConvertTo-Json -Compress -InputObject @(Get-CimInstance Win32_Process -Filter \"Name LIKE 'language_server%' OR Name='agy.exe'\" | Where-Object { $_.CommandLine } | Select-Object ProcessId,CommandLine)";
         if let Some(raw) = output(
             "powershell.exe",
             &["-NoProfile", "-NonInteractive", "-Command", script],
@@ -95,11 +96,7 @@ pub fn servers() -> Vec<Server> {
     let mut servers = vec![];
     for process in processes {
         let lower = process.command.to_lowercase();
-        let executable = lower
-            .trim_start_matches('"')
-            .split(['"', ' '])
-            .next()
-            .unwrap_or("");
+        let executable = executable(&lower);
         let agy = executable
             .rsplit(['/', '\\'])
             .next()
@@ -168,9 +165,41 @@ pub fn servers() -> Vec<Server> {
     }
     servers
 }
+fn executable(command: &str) -> &str {
+    let command = command.trim();
+    if let Some(quoted) = command.strip_prefix('"') {
+        quoted.split('"').next().unwrap_or("")
+    } else {
+        command.split_whitespace().next().unwrap_or("")
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn executable_paths_preserve_quoted_spaces() {
+        assert_eq!(
+            executable(r#""C:\Users\Some User\agy.exe" --extension_server_port 12345"#),
+            r"C:\Users\Some User\agy.exe"
+        );
+        assert_eq!(executable("/usr/bin/agy --flag value"), "/usr/bin/agy");
+    }
+    #[cfg(windows)]
+    #[test]
+    fn windows_process_discovery_preserves_zero_one_and_multiple_results() {
+        for count in 0..=2 {
+            let script = format!(
+                "ConvertTo-Json -Compress -InputObject @(for ($i=0; $i -lt {count}; $i++) {{ [pscustomobject]@{{ ProcessId=($i+1); CommandLine='fixture' }} }})"
+            );
+            let raw = output(
+                "powershell.exe",
+                &["-NoProfile", "-NonInteractive", "-Command", &script],
+            )
+            .unwrap();
+            let processes: Vec<Process> = serde_json::from_str(&raw).unwrap();
+            assert_eq!(processes.len(), count);
+        }
+    }
     #[test]
     fn flags_match_complete_names_and_support_equals() {
         assert_eq!(

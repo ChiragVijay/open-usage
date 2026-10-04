@@ -32,6 +32,7 @@ open = { version = "5", optional = true }
 tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Security_Credentials"] }
 raw-window-handle = { version = "0.6", optional = true }
 windows = { version = "0.61", optional = true, features = ["Win32_UI_WindowsAndMessaging"] }
 

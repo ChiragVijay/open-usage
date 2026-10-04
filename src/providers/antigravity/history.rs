@@ -42,9 +42,11 @@ pub fn generation(blob: &[u8], step: Option<&[u8]>) -> Option<(DateTime<Utc>, St
     let stamp = proto::bytes(wrapped, 9)
         .and_then(|timing| proto::bytes(timing, 4))
         .and_then(|stamp| proto::integer(stamp, 1))
+        .filter(|stamp| *stamp > 0 && i64::try_from(*stamp).is_ok())
         .or_else(|| {
             step.and_then(|step| proto::bytes(step, 1))
                 .and_then(|stamp| proto::integer(stamp, 1))
+                .filter(|stamp| *stamp > 0 && i64::try_from(*stamp).is_ok())
         })?;
     let timestamp = DateTime::from_timestamp(i64::try_from(stamp).ok()?, 0)?;
     let model = if id.as_deref().is_some_and(|id| id.ends_with("-default")) {

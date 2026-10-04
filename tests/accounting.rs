@@ -604,6 +604,7 @@ fn parser_upgrade_invalidates_normalized_files_and_preserves_account_history() {
     let database = dir.path().join("usage.db");
     let connection = rusqlite::Connection::open(&database).unwrap();
     connection.execute_batch("CREATE TABLE files(path TEXT PRIMARY KEY,size INTEGER,modified INTEGER,records TEXT); CREATE TABLE snapshot(id INTEGER PRIMARY KEY,json TEXT); INSERT INTO files VALUES('old',1,1,'[]');").unwrap();
+    connection.pragma_update(None, "user_version", 2).unwrap();
     let snapshot = Snapshot {
         records: vec![record("unknown")],
         ..Default::default()

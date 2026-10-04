@@ -1,7 +1,9 @@
 use crate::model::Provider;
+#[cfg(not(windows))]
+use crate::providers::http::keychain;
 use crate::providers::{
     history::date,
-    http::{keychain, response, token},
+    http::{response, token},
     local, proto,
 };
 use anyhow::{Context, Result};
@@ -22,25 +24,95 @@ struct OAuth {
     expiry: Option<DateTime<Utc>>,
 }
 fn oauth_json(raw: &str) -> Option<OAuth> {
-    let decoded = raw
-        .strip_prefix("go-keyring-base64:")
-        .and_then(|raw| STANDARD.decode(raw).ok())
-        .and_then(|bytes| String::from_utf8(bytes).ok());
-    let body: Value = serde_json::from_str(decoded.as_deref().unwrap_or(raw)).ok()?;
+    let raw = raw.trim().trim_start_matches('\u{feff}');
+    let decoded = if let Some(encoded) = raw.strip_prefix("go-keyring-base64:") {
+        Some(String::from_utf8(STANDARD.decode(encoded).ok()?).ok()?)
+    } else {
+        None
+    };
+    let text = decoded.as_deref().unwrap_or(raw).trim();
+    match serde_json::from_str::<Value>(text) {
+        Ok(Value::String(access)) => bearer(&access),
+        Ok(body) => oauth_object(&body, 0),
+        Err(_) if text.starts_with(['{', '[']) => None,
+        Err(_) => bearer(text),
+    }
+}
+fn bearer(raw: &str) -> Option<OAuth> {
+    let access = raw.strip_prefix("Bearer ").unwrap_or(raw).trim();
+    if access.is_empty()
+        || access == "Bearer"
+        || access.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return None;
+    }
+    Some(OAuth {
+        access: Some(access.into()),
+        refresh: None,
+        expiry: None,
+    })
+}
+fn oauth_object(body: &Value, depth: usize) -> Option<OAuth> {
+    if depth >= 8 {
+        return None;
+    }
     let body = body
         .get("token")
         .filter(|token| token.is_object())
-        .unwrap_or(&body);
-    let access = token(body, "/access_token").or_else(|| token(body, "/accessToken"));
+        .unwrap_or(body);
+    let access = [
+        "/access_token",
+        "/accessToken",
+        "/token",
+        "/id_token",
+        "/idToken",
+        "/bearerToken",
+        "/auth_token",
+        "/authToken",
+    ]
+    .into_iter()
+    .find_map(|path| token(body, path));
     let refresh = token(body, "/refresh_token").or_else(|| token(body, "/refreshToken"));
     if access.is_none() && refresh.is_none() {
-        return None;
+        return ["tokens", "oauth", "oauth2", "credentials", "auth"]
+            .into_iter()
+            .find_map(|key| oauth_object(&body[key], depth + 1));
     }
     Some(OAuth {
         access,
         refresh,
-        expiry: body["expiry"].as_str().and_then(date),
+        expiry: ["expiry", "expires_at", "expiresAt"]
+            .into_iter()
+            .find_map(|key| body[key].as_str().and_then(date)),
     })
+}
+
+#[cfg(windows)]
+fn keyring_oauth() -> Option<OAuth> {
+    use windows_sys::Win32::Security::Credentials::{CRED_TYPE_GENERIC, CredFree, CredReadW};
+    // go-keyring stores this exact service/account as a generic UTF-8 credential.
+    let target: Vec<u16> = "gemini:antigravity".encode_utf16().chain([0]).collect();
+    let mut credential = std::ptr::null_mut();
+    // SAFETY: target is NUL-terminated; CredReadW initializes the returned allocation.
+    unsafe {
+        if CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut credential) == 0 {
+            return None;
+        }
+        let value = &*credential;
+        let result = if value.CredentialBlob.is_null() || value.CredentialBlobSize == 0 {
+            None
+        } else {
+            let bytes =
+                std::slice::from_raw_parts(value.CredentialBlob, value.CredentialBlobSize as usize);
+            std::str::from_utf8(bytes).ok().and_then(oauth_json)
+        };
+        CredFree(credential.cast());
+        result
+    }
+}
+#[cfg(not(windows))]
+fn keyring_oauth() -> Option<OAuth> {
+    keychain("gemini", Some("antigravity")).and_then(|raw| oauth_json(&raw))
 }
 fn oauth_proto(raw: &str) -> Option<OAuth> {
     let outer = STANDARD.decode(raw.trim()).ok()?;
@@ -65,12 +137,18 @@ fn oauth_proto(raw: &str) -> Option<OAuth> {
     })
 }
 fn oauth(homes: &[PathBuf]) -> Result<Option<OAuth>> {
+    // Current clients own their login in the OS keyring; SQLite is a legacy fallback.
+    if let Some(auth) = keyring_oauth() {
+        return Ok(Some(auth));
+    }
     for home in homes {
         let file = home.join("antigravity-oauth-token");
         if file.exists() {
-            return std::fs::read_to_string(file)
-                .map(|raw| oauth_json(&raw))
-                .map_err(|_| anyhow::anyhow!("Antigravity CLI login could not be read"));
+            let raw = std::fs::read_to_string(file)
+                .map_err(|_| anyhow::anyhow!("Antigravity CLI login could not be read"))?;
+            if let Some(auth) = oauth_json(&raw) {
+                return Ok(Some(auth));
+            }
         }
         let db = home.join("User/globalStorage/state.vscdb");
         if !db.exists() {
@@ -78,6 +156,9 @@ fn oauth(homes: &[PathBuf]) -> Result<Option<OAuth>> {
         }
         let connection = local::database(&db)
             .map_err(|_| anyhow::anyhow!("Antigravity login could not be read"))?;
+        if !local::table(&connection, "ItemTable")? {
+            continue;
+        }
         let raw: Option<String> = connection
             .query_row(
                 "SELECT value FROM ItemTable WHERE key='antigravityUnifiedStateSync.oauthToken'",
@@ -89,7 +170,7 @@ fn oauth(homes: &[PathBuf]) -> Result<Option<OAuth>> {
             return Ok(Some(auth));
         }
     }
-    Ok(keychain("gemini", Some("antigravity")).and_then(|raw| oauth_json(&raw)))
+    Ok(None)
 }
 pub(super) fn fingerprint(homes: &[PathBuf]) -> Result<Option<String>> {
     Ok(oauth(homes)?
@@ -123,4 +204,55 @@ pub(super) fn access(client: &Client, homes: &[PathBuf]) -> Result<String> {
         },
     )?;
     Ok(access)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn keyring_login_preserves_refresh_and_expiry() {
+        let body = json!({"token":{"access_token":"fixture-access","refresh_token":"fixture-refresh","expiry":"2026-11-01T00:00:00Z"}}).to_string();
+        for raw in [
+            body.clone(),
+            format!("go-keyring-base64:{}", STANDARD.encode(&body)),
+        ] {
+            let auth = oauth_json(&raw).unwrap();
+            assert_eq!(auth.access.as_deref(), Some("fixture-access"));
+            assert_eq!(auth.refresh.as_deref(), Some("fixture-refresh"));
+            assert_eq!(auth.expiry.unwrap().timestamp(), 1793491200);
+        }
+        let auth = oauth_json(r#"{"credentials":{"accessToken":"fixture-access","refreshToken":"fixture-refresh","expiresAt":"2026-11-01T00:00:00Z"}}"#).unwrap();
+        assert!(auth.expiry.is_some());
+        assert_eq!(auth.refresh.as_deref(), Some("fixture-refresh"));
+    }
+
+    #[test]
+    fn bearer_forms_are_supported_and_malformed_logins_are_rejected() {
+        for raw in [
+            "fixture-access",
+            "Bearer fixture-access",
+            "\"fixture-access\"",
+        ] {
+            assert_eq!(
+                oauth_json(raw).unwrap().access.as_deref(),
+                Some("fixture-access")
+            );
+        }
+        for raw in [
+            "",
+            "{broken",
+            "[broken",
+            "{}",
+            "null",
+            "Bearer ",
+            "go-keyring-base64:!",
+        ] {
+            assert!(
+                oauth_json(raw).is_none(),
+                "Invalid credential format must be rejected"
+            );
+        }
+    }
 }

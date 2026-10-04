@@ -282,6 +282,9 @@ fn bytes(field: u64, data: &[u8]) -> Vec<u8> {
     .concat()
 }
 fn generation_blob(with_time: bool) -> Vec<u8> {
+    generation_blob_at(with_time.then_some(1791028800))
+}
+fn generation_blob_at(stamp: Option<u64>) -> Vec<u8> {
     let usage = [
         integer(1, 10),
         integer(2, 100),
@@ -295,8 +298,8 @@ fn generation_blob(with_time: bool) -> Vec<u8> {
         bytes(4, &usage),
     ]
     .concat();
-    if with_time {
-        event.extend(bytes(9, &bytes(4, &integer(1, 1791028800))));
+    if let Some(stamp) = stamp {
+        event.extend(bytes(9, &bytes(4, &integer(1, stamp))));
     }
     bytes(1, &event)
 }
@@ -324,6 +327,25 @@ fn antigravity_generation_counts_system_input_once_and_requires_real_timestamp()
     ] {
         assert!(antigravity::generation(&malformed, None).is_none());
     }
+}
+
+#[test]
+fn antigravity_invalid_embedded_timing_uses_only_valid_step_timing() {
+    let valid_step = bytes(1, &integer(1, 1791028800));
+    for stamp in [0, u64::MAX] {
+        let blob = generation_blob_at(Some(stamp));
+        assert!(antigravity::generation(&blob, None).is_none());
+        assert_eq!(
+            antigravity::generation(&blob, Some(&valid_step))
+                .unwrap()
+                .0
+                .timestamp(),
+            1791028800
+        );
+    }
+    assert!(
+        antigravity::generation(&generation_blob(false), Some(&bytes(1, &integer(1, 0)))).is_none()
+    );
 }
 
 #[test]

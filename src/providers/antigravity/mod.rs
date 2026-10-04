@@ -32,6 +32,15 @@ fn remote(client: &Client, method: &str, access: &str, body: &Value) -> Result<V
         match response(
             client
                 .post(format!("{base}/v1internal:{method}"))
+                .header("Accept", "application/json")
+                .header(
+                    "User-Agent",
+                    if matches!(method, "loadCodeAssist" | "retrieveUserQuota") {
+                        "agy"
+                    } else {
+                        "antigravity"
+                    },
+                )
                 .bearer_auth(access)
                 .json(body),
             Provider::Antigravity,

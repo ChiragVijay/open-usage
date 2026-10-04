@@ -72,6 +72,8 @@ pub fn homes(provider: Provider, config: &Config) -> Vec<PathBuf> {
         paths.extend([
             home.join(".kiro"),
             home.join(".aws/sso/cache"),
+            // Native Windows CLI uses Local rather than roaming app data.
+            kiro::cli_home(&dirs::data_local_dir().unwrap_or_default()),
             dirs::data_dir().unwrap_or_default().join("kiro-cli"),
             home.join(".local/share/kiro-cli"),
             dirs::data_dir().unwrap_or_default().join("amazon-q"),

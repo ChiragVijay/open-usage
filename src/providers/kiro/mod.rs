@@ -9,10 +9,50 @@ use crate::providers::{
 };
 use anyhow::{Context, Result, bail};
 pub use quota::{CachedLimits, cached_limits, limits};
-use reqwest::blocking::Client;
+use reqwest::blocking::{Client, RequestBuilder};
 use rusqlite::OptionalExtension;
 use serde_json::{Value, json};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+pub(super) fn cli_home(local_data: &Path) -> PathBuf {
+    local_data.join(if cfg!(windows) {
+        "Kiro-Cli"
+    } else {
+        "kiro-cli"
+    })
+}
+
+// The runtime requires the full AWS-JSON operation name and a Kiro/Q user agent.
+// Kiro Crew's own credit reader uses this same read-only runtime operation.
+fn cli_request(
+    client: &Client,
+    aws_region: &str,
+    access: &str,
+    profile: &str,
+) -> Result<RequestBuilder> {
+    let aws_region = region(aws_region)?;
+    let mut body = json!({"origin":"AI_EDITOR","resourceType":"AGENTIC_REQUEST"});
+    if !profile.is_empty() {
+        body["profileArn"] = json!(profile);
+    }
+    Ok(client
+        .post(format!("https://codewhisperer.{aws_region}.amazonaws.com/"))
+        .header("Content-Type", "application/x-amz-json-1.0")
+        .header(
+            "x-amz-target",
+            "com.amazon.aws.codewhisperer.runtime.AmazonCodeWhispererService.GetUsageLimits",
+        )
+        .header(
+            "User-Agent",
+            concat!(
+                "AmazonQ-For-CLI/1.24.0 ua/2.0 lang/rust OpenUsage/",
+                env!("CARGO_PKG_VERSION")
+            ),
+        )
+        .bearer_auth(access)
+        .json(&body))
+}
+
 pub(super) fn fingerprint(homes: &[PathBuf]) -> Result<Option<String>> {
     for home in homes {
         let path = home.join("data.sqlite3");
@@ -141,9 +181,10 @@ pub fn fetch(client: &Client, homes: &[PathBuf]) -> Result<LiveData> {
             .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
             .and_then(|value| token(&value, "/arn"))
             .unwrap_or_default();
-        return data(response(client.post(format!("https://codewhisperer.{aws_region}.amazonaws.com/"))
-            .header("Content-Type","application/x-amz-json-1.0").header("x-amz-target","AmazonCodeWhispererService.GetUsageLimits").bearer_auth(access)
-            .json(&json!({"origin":"AI_EDITOR","profileArn":profile,"resourceType":"AGENTIC_REQUEST"})),Provider::Kiro)?);
+        return data(response(
+            cli_request(client, aws_region, &access, &profile)?,
+            Provider::Kiro,
+        )?);
     }
     // IDE social/Identity Center credentials, from Kiro's specific SSO cache file.
     let auth = homes
@@ -202,6 +243,64 @@ pub fn fetch(client: &Client, homes: &[PathBuf]) -> Result<LiveData> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_cli_login_is_read_from_local_app_data() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let local = dir.path().join("Local");
+        let roaming = dir.path().join("Roaming");
+        let home = cli_home(&local);
+        std::fs::create_dir_all(&home).unwrap();
+        let db = rusqlite::Connection::open(home.join("data.sqlite3")).unwrap();
+        db.execute_batch("CREATE TABLE auth_kv(key TEXT,value TEXT)")
+            .unwrap();
+        db.execute(
+            "INSERT INTO auth_kv VALUES('kirocli:odic:token',?1)",
+            [
+                json!({"access_token":"fixture-access","refresh_token":"fixture-refresh"})
+                    .to_string(),
+            ],
+        )
+        .unwrap();
+        assert!(fingerprint(&[roaming.join("kiro-cli")]).unwrap().is_none());
+        assert!(fingerprint(&[home]).unwrap().is_some());
+        assert!(!roaming.exists());
+    }
+    #[test]
+    fn cli_usage_request_matches_the_runtime_protocol() {
+        let client = Client::new();
+        let request = cli_request(&client, "us-east-1", "fixture-access", "")
+            .unwrap()
+            .build()
+            .unwrap();
+        assert_eq!(request.method(), reqwest::Method::POST);
+        assert_eq!(
+            request.url().as_str(),
+            "https://codewhisperer.us-east-1.amazonaws.com/"
+        );
+        assert_eq!(
+            request.headers()["x-amz-target"],
+            "com.amazon.aws.codewhisperer.runtime.AmazonCodeWhispererService.GetUsageLimits"
+        );
+        assert!(
+            request.headers()["user-agent"]
+                .to_str()
+                .unwrap()
+                .starts_with("AmazonQ-For-CLI/")
+        );
+        let body: Value =
+            serde_json::from_slice(request.body().unwrap().as_bytes().unwrap()).unwrap();
+        assert_eq!(body["origin"], "AI_EDITOR");
+        assert_eq!(body["resourceType"], "AGENTIC_REQUEST");
+        assert!(body.get("profileArn").is_none());
+        let request = cli_request(&client, "us-east-1", "fixture-access", "fixture-profile")
+            .unwrap()
+            .build()
+            .unwrap();
+        let body: Value =
+            serde_json::from_slice(request.body().unwrap().as_bytes().unwrap()).unwrap();
+        assert_eq!(body["profileArn"], "fixture-profile");
+        assert!(cli_request(&client, "evil.example", "fixture-access", "").is_err());
+    }
     #[test]
     fn aws_regions_cannot_redirect_credentials_to_another_host() {
         assert!(region("us-east-1").is_ok());

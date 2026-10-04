@@ -43,6 +43,7 @@ pub fn detect(provider: Provider, homes: &[PathBuf], env: &Environment) -> Vec<S
             "data.sqlite3",
             "kiro-auth-token.json",
             "settings/cli.json",
+            "crew/config.json",
             "User/globalStorage/state.vscdb",
         ],
         Provider::Antigravity => &[
@@ -70,7 +71,7 @@ pub fn detect(provider: Provider, homes: &[PathBuf], env: &Environment) -> Vec<S
         Provider::Codex => &["codex"],
         Provider::Claude => &["claude"],
         Provider::Cursor => &["cursor", "cursor-agent", "agent"],
-        Provider::Kiro => &["kiro", "kiro-cli"],
+        Provider::Kiro => &["kiro", "kiro-cli", "kirocrew"],
         Provider::Antigravity => &["antigravity", "agy"],
         Provider::OpenCode => &["opencode"],
     };
@@ -121,6 +122,26 @@ pub fn detect(provider: Provider, homes: &[PathBuf], env: &Environment) -> Vec<S
             if candidate.is_file() {
                 evidence.insert(candidate);
             }
+            if provider == Provider::Kiro {
+                let crew = root.join("KiroCrew/KiroCrew.exe");
+                if crew.is_file() {
+                    evidence.insert(crew);
+                }
+            }
+        }
+    }
+    if provider == Provider::Kiro {
+        let cli = env.local_data.join("Kiro-Cli/kiro-cli.exe");
+        if cli.is_file() {
+            evidence.insert(cli);
+        }
+        for root in &env.applications {
+            for bundle in ["Kiro Crew.app", "KiroCrew.app"] {
+                let candidate = root.join(bundle);
+                if candidate.is_dir() {
+                    evidence.insert(candidate);
+                }
+            }
         }
     }
     if provider == Provider::Codex {
@@ -161,4 +182,34 @@ pub fn detect(provider: Provider, homes: &[PathBuf], env: &Environment) -> Vec<S
         .into_iter()
         .map(|path| path.to_string_lossy().into_owned())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kiro_cli_and_crew_installations_are_detected_without_path_aliases() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let env = Environment {
+            home: dir.path().join("home"),
+            path: vec![],
+            local_data: dir.path().join("Local"),
+            program_dirs: vec![],
+            applications: vec![],
+        };
+        let cli = env.local_data.join("Kiro-Cli/kiro-cli.exe");
+        std::fs::create_dir_all(cli.parent().unwrap()).unwrap();
+        std::fs::write(&cli, []).unwrap();
+        let crew = env
+            .local_data
+            .join("Programs")
+            .join("KiroCrew/KiroCrew.exe");
+        std::fs::create_dir_all(crew.parent().unwrap()).unwrap();
+        std::fs::write(&crew, []).unwrap();
+        let detected = detect(Provider::Kiro, &[], &env);
+        assert!(detected.contains(&cli.to_string_lossy().into_owned()));
+        assert!(detected.contains(&crew.to_string_lossy().into_owned()));
+        assert!(detect(Provider::Claude, &[], &env).is_empty());
+    }
 }

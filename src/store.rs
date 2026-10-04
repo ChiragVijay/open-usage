@@ -19,9 +19,9 @@ impl Store {
             CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, size INTEGER NOT NULL, modified INTEGER NOT NULL, records TEXT NOT NULL);")?;
         // Re-read normalized history when parser semantics change, preserving the account snapshot.
         let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if version < 2 {
+        if version < 3 {
             connection.execute_batch(
-                "BEGIN IMMEDIATE; DELETE FROM files; PRAGMA user_version=2; COMMIT;",
+                "BEGIN IMMEDIATE; DELETE FROM files; PRAGMA user_version=3; COMMIT;",
             )?;
         }
         Ok(Self(connection))
