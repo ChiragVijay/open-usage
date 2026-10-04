@@ -28,18 +28,19 @@ pub fn summary(body: &Value) -> Option<Vec<LimitWindow>> {
             .entry(id)
             .or_insert((fraction, &bucket["resetTime"]));
     }
+    let sep = crate::analytics::separator();
     Some(
         [
-            ("gemini-5h", "Gemini · 5-hour", 300),
-            ("gemini-weekly", "Gemini · weekly", 10080),
-            ("3p-5h", "Claude / GPT · 5-hour", 300),
-            ("3p-weekly", "Claude / GPT · weekly", 10080),
+            ("gemini-5h", format!("Gemini{sep}5-hour"), 300),
+            ("gemini-weekly", format!("Gemini{sep}weekly"), 10080),
+            ("3p-5h", format!("Claude / GPT{sep}5-hour"), 300),
+            ("3p-weekly", format!("Claude / GPT{sep}weekly"), 10080),
         ]
         .into_iter()
         .filter_map(|(id, label, mins)| {
             let (fraction, reset) = buckets.get(id)?;
             let mut limit = window(
-                label,
+                &label,
                 &json!((1. - fraction.clamp(0., 1.)) * 100.),
                 reset,
                 Some(mins),
@@ -118,12 +119,14 @@ pub fn legacy(body: &Value) -> Vec<LimitWindow> {
         {
             continue;
         }
+        let sep = crate::analytics::separator();
+        let label = if gemini {
+            format!("Gemini{sep}5-hour")
+        } else {
+            format!("Claude / GPT{sep}5-hour")
+        };
         let mut limit = window(
-            if gemini {
-                "Gemini · 5-hour"
-            } else {
-                "Claude / GPT · 5-hour"
-            },
+            &label,
             &json!((1. - fraction.clamp(0., 1.)) * 100.),
             &quota["resetTime"],
             Some(300),

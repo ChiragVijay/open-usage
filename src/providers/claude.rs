@@ -10,14 +10,15 @@ use std::path::PathBuf;
 
 pub fn claude_limits(body: &Value) -> Vec<LimitWindow> {
     let mut limits = vec![];
+    let weekly = |name: &str| format!("Weekly{}{name}", crate::analytics::separator());
     for (key, label, mins) in [
-        ("five_hour", "5-hour session", 300),
-        ("seven_day", "Weekly", 10080),
-        ("seven_day_sonnet", "Weekly · Sonnet", 10080),
-        ("seven_day_opus", "Weekly · Opus", 10080),
+        ("five_hour", "5-hour session".to_string(), 300),
+        ("seven_day", "Weekly".to_string(), 10080),
+        ("seven_day_sonnet", weekly("Sonnet"), 10080),
+        ("seven_day_opus", weekly("Opus"), 10080),
     ] {
         if let Some(limit) = window(
-            label,
+            &label,
             &body[key]["utilization"],
             &body[key]["resets_at"],
             Some(mins),
@@ -27,10 +28,7 @@ pub fn claude_limits(body: &Value) -> Vec<LimitWindow> {
     }
     if let Some(scoped) = body["model_scoped"].as_array() {
         for data in scoped {
-            let label = format!(
-                "Weekly · {}",
-                data["display_name"].as_str().unwrap_or("Model")
-            );
+            let label = weekly(data["display_name"].as_str().unwrap_or("Model"));
             if let Some(limit) = window(
                 &label,
                 &data["utilization"],
