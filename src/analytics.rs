@@ -274,6 +274,86 @@ pub fn analyze(
         .sort_by_key(|row| std::cmp::Reverse(row.totals.tokens.total()));
     analysis
 }
+#[derive(Debug, Clone)]
+pub struct ProjectRow {
+    /// Empty when the source did not report a project.
+    pub project: String,
+    pub totals: Totals,
+}
+#[derive(Debug, Clone)]
+pub struct MixBucket {
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    pub tokens: Tokens,
+}
+/// Breakdowns that complement [`Analysis`]: token types over time, local
+/// weekday/hour activity, and per-project totals.
+#[derive(Debug, Clone)]
+pub struct Insights {
+    pub mix: Vec<MixBucket>,
+    /// Tokens by local weekday (Monday = 0) and local hour.
+    pub heatmap: [[u64; 24]; 7],
+    pub projects: Vec<ProjectRow>,
+}
+pub fn insights(
+    snapshot: &Snapshot,
+    config: &Config,
+    period: Period,
+    provider: Option<Provider>,
+    now: DateTime<Utc>,
+) -> Insights {
+    use chrono::{Datelike, Timelike};
+    let first = period.start(now);
+    let interval = period.bucket_seconds();
+    let bucket_count = ((now - first).num_seconds().max(1) + interval - 1) / interval;
+    let mut result = Insights {
+        mix: (0..bucket_count)
+            .map(|d| MixBucket {
+                start: first + Duration::seconds(d * interval),
+                end: (first + Duration::seconds((d + 1) * interval)).min(now),
+                tokens: Tokens::default(),
+            })
+            .collect(),
+        heatmap: [[0; 24]; 7],
+        projects: vec![],
+    };
+    let mut projects: BTreeMap<String, Totals> = BTreeMap::new();
+    let mut project_sessions: BTreeMap<String, BTreeSet<(Provider, String)>> = BTreeMap::new();
+    for record in &snapshot.records {
+        if !config.enabled[record.provider.index()] || !matches(record, period, provider, now) {
+            continue;
+        }
+        let index = ((record.timestamp - first).num_seconds() / interval).min(bucket_count - 1);
+        if let Some(bucket) = usize::try_from(index)
+            .ok()
+            .and_then(|index| result.mix.get_mut(index))
+        {
+            bucket.tokens.add(&record.tokens);
+        }
+        let local = record.timestamp.with_timezone(&Local);
+        let cell = &mut result.heatmap[local.weekday().num_days_from_monday() as usize]
+            [local.hour() as usize];
+        *cell = cell.saturating_add(record.tokens.total());
+        add(projects.entry(record.project.clone()).or_default(), record);
+        if !record.session.is_empty() {
+            project_sessions
+                .entry(record.project.clone())
+                .or_default()
+                .insert((record.provider, record.session.clone()));
+        }
+    }
+    result.projects = projects
+        .into_iter()
+        .map(|(project, mut totals)| {
+            totals.sessions = project_sessions.get(&project).map_or(0, BTreeSet::len);
+            ProjectRow { project, totals }
+        })
+        .collect();
+    result
+        .projects
+        .sort_by_key(|row| std::cmp::Reverse(row.totals.tokens.total()));
+    result
+}
 pub fn export_csv(
     path: &Path,
     snapshot: &Snapshot,

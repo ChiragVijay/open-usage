@@ -8,37 +8,55 @@ pub struct Theme {
     pub sidebar: u32,
     pub ink: u32,
     pub muted: u32,
+    /// Axis ticks and other tertiary text.
+    pub faint: u32,
     pub line: u32,
+    /// Chart gridlines; quieter than `line`.
+    pub grid: u32,
     pub wash: u32,
-    pub accent: u32,
+    pub focus: u32,
+    pub warn: u32,
+    pub danger: u32,
 }
 impl Theme {
     pub fn new(dark: bool) -> Self {
         if dark {
             Self {
-                bg: 0x191b1f,
-                panel: 0x21242a,
-                sidebar: 0x202227,
-                ink: 0xf1f3f5,
-                muted: 0xa6abb4,
-                line: 0x353a43,
-                wash: 0x30323e,
-                accent: 0xf1f3f5,
+                bg: 0x131417,
+                panel: 0x1b1c20,
+                sidebar: 0x16171a,
+                ink: 0xeceef1,
+                muted: 0x9ba1ab,
+                faint: 0x6d737d,
+                line: 0x2b2d33,
+                grid: 0x24262b,
+                wash: 0x26282e,
+                focus: 0x7c9cff,
+                warn: 0xd9a441,
+                danger: 0xef6b6b,
             }
         } else {
             Self {
-                bg: 0xffffff,
+                bg: 0xf6f7f9,
                 panel: 0xffffff,
-                sidebar: 0xf7f8fa,
-                ink: 0x24262b,
-                muted: 0x68707c,
-                line: 0xe5e8ed,
-                wash: 0xefeff6,
-                accent: 0x24262b,
+                sidebar: 0xf6f7f9,
+                ink: 0x1d2025,
+                muted: 0x646b76,
+                faint: 0x9aa1ac,
+                line: 0xe4e7ec,
+                grid: 0xf0f2f5,
+                wash: 0xeceef2,
+                focus: 0x3b6ef5,
+                warn: 0xb7791f,
+                danger: 0xd64545,
             }
         }
     }
 }
+/// Spacing, radius and control sizes shared by every page.
+pub const RADIUS: f32 = 6.;
+pub const PANEL_RADIUS: f32 = 10.;
+pub const CONTROL_HEIGHT: f32 = 30.;
 /// Series colors from Notion's tag palette, so charts stay distinct without shouting.
 pub fn color(provider: Provider, dark: bool) -> u32 {
     match (provider, dark) {
@@ -70,6 +88,14 @@ pub fn tint(provider: Provider, dark: bool) -> u32 {
         (Provider::Antigravity, true) => 0x193d32,
         (Provider::OpenCode, false) => 0xeceef1,
         (Provider::OpenCode, true) => 0x323944,
+    }
+}
+/// Token-type series: input, output, cache read, cache write.
+pub fn token_colors(dark: bool) -> [u32; 4] {
+    if dark {
+        [0x529cca, 0xe08a3c, 0x4b5563, 0xa484c7]
+    } else {
+        [0x337ea9, 0xd9730d, 0xc3cbd6, 0x9065b0]
     }
 }
 pub fn body_font() -> &'static str {
@@ -107,9 +133,20 @@ pub fn sync_components(dark: bool, window: &mut gpui::Window, cx: &mut gpui::App
     theme.font_family = body_font().into();
     theme.font_size = px(14.);
     theme.mono_font_family = mono_font().into();
-    theme.radius = px(4.);
-    theme.radius_lg = px(6.);
+    theme.radius = px(RADIUS);
+    theme.radius_lg = px(PANEL_RADIUS);
     theme.shadow = false;
+}
+/// Tabular figures keep columns of numbers aligned without a monospace font.
+pub fn tabular<E: Styled>(mut element: E) -> E {
+    element
+        .text_style()
+        .get_or_insert_with(Default::default)
+        .font_features = Some(gpui::FontFeatures(std::sync::Arc::new(vec![(
+        "tnum".into(),
+        1,
+    )])));
+    element
 }
 pub fn label(text: impl Into<SharedString>, theme: Theme) -> Div {
     div()
@@ -117,9 +154,15 @@ pub fn label(text: impl Into<SharedString>, theme: Theme) -> Div {
         .text_color(rgb(theme.muted))
         .child(text.into())
 }
+pub fn caption(text: impl Into<SharedString>, theme: Theme) -> Div {
+    div()
+        .text_size(px(11.))
+        .text_color(rgb(theme.faint))
+        .child(text.into())
+}
 pub fn title(text: impl Into<SharedString>, theme: Theme) -> Div {
     div()
-        .text_size(px(15.))
+        .text_size(px(14.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgb(theme.ink))
         .child(text.into())
@@ -129,8 +172,8 @@ pub fn panel(theme: Theme) -> Div {
         .bg(rgb(theme.panel))
         .border_1()
         .border_color(rgb(theme.line))
-        .rounded(px(8.))
-        .p(px(18.))
+        .rounded(px(PANEL_RADIUS))
+        .p(px(16.))
 }
 pub fn dot(provider: Provider, dark: bool) -> Div {
     div()
@@ -148,7 +191,7 @@ pub fn icon(name: &'static str, theme: Theme) -> Svg {
 pub fn provider_mark(provider: Provider, dark: bool) -> Div {
     div()
         .size(px(32.))
-        .rounded(px(4.))
+        .rounded(px(RADIUS))
         .bg(rgb(tint(provider, dark)))
         .flex()
         .items_center()
@@ -193,7 +236,16 @@ impl gpui::AssetSource for Assets {
                 "<path d='M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6'/><circle cx='12' cy='12' r='3'/>"
             }
             "theme" => "<path d='M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11z'/>",
+            "theme-light" => {
+                "<circle cx='12' cy='12' r='4'/><path d='M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4'/>"
+            }
             "arrow" => "<path d='m9 5 7 7-7 7'/>",
+            "insights" => "<path d='M4 20V10M10 20V4M16 20v-7M22 20H2'/>",
+            "sort-down" => "<path d='M12 5v14m-5-5 5 5 5-5'/>",
+            "sort-up" => "<path d='M12 19V5m-5 5 5-5 5 5'/>",
+            "chevron" => "<path d='m6 9 6 6 6-6'/>",
+            "close" => "<path d='M6 6l12 12M18 6 6 18'/>",
+            "reset" => "<path d='M4 12a8 8 0 1 0 2.3-5.6M4 4v5h5'/>",
             "brand" => "<path d='M4 16V8a4 4 0 0 1 8 0v8a4 4 0 0 0 8 0V8M4 12h16'/>",
             _ => return Ok(None),
         };

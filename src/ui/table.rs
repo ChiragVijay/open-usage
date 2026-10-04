@@ -1,5 +1,5 @@
 use open_usage::{
-    analytics::{self, ModelRow, Totals},
+    analytics::{self, ModelRow, ProjectRow, Totals},
     model::UsageRecord,
 };
 use std::cmp::Ordering;
@@ -8,6 +8,7 @@ use std::cmp::Ordering;
 pub enum Table {
     Models,
     Activity,
+    Projects,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Column {
@@ -19,6 +20,7 @@ pub enum Column {
     CacheRead,
     CacheWrite,
     Sessions,
+    Events,
     Cost,
     Time,
     Project,
@@ -34,6 +36,7 @@ impl Column {
             Self::CacheRead => "Cache read",
             Self::CacheWrite => "Cache write",
             Self::Sessions => "Sessions",
+            Self::Events => "Events",
             Self::Cost => "Cost",
             Self::Time => "Time",
             Self::Project => "Project",
@@ -43,33 +46,41 @@ impl Column {
         !matches!(self, Self::Model | Self::Account | Self::Project)
     }
 }
-#[derive(Clone, Copy, Debug)]
+/// Clicking a column cycles: its natural direction, the reverse, then back to
+/// the table's default order.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Sort {
     pub column: Column,
     pub descending: bool,
+    default: Column,
 }
 impl Sort {
     pub fn new(column: Column) -> Self {
         Self {
             column,
             descending: column.numeric(),
+            default: column,
         }
     }
     pub fn select(&mut self, column: Column) {
-        if self.column == column {
+        if self.column != column {
+            self.column = column;
+            self.descending = column.numeric();
+        } else if self.descending == column.numeric() {
             self.descending = !self.descending;
         } else {
-            *self = Self::new(column);
+            self.reset();
         }
     }
-    pub fn marker(self, column: Column) -> &'static str {
-        if self.column != column {
-            ""
-        } else if self.descending {
-            " ↓"
-        } else {
-            " ↑"
-        }
+    pub fn reset(&mut self) {
+        *self = Self::new(self.default);
+    }
+    pub fn is_default(self) -> bool {
+        self.column == self.default && self.descending == self.default.numeric()
+    }
+    /// The arrow for an active column, if any.
+    pub fn arrow(self, column: Column) -> Option<bool> {
+        (self.column == column).then_some(self.descending)
     }
     fn direction(self, order: Ordering) -> Ordering {
         if self.descending {
@@ -115,8 +126,17 @@ impl Sort {
                 .then_with(|| a.provider.cmp(&b.provider))
         });
     }
+
+    #[cfg(test)]
     pub fn activity(self, rows: &mut [&UsageRecord]) {
-        rows.sort_by(|a, b| {
+        rows.sort_by(|a, b| self.compare_records(a, b));
+    }
+    /// Sorts records that carry their position in the history.
+    pub fn activity_indexed(self, rows: &mut [(usize, &UsageRecord)]) {
+        rows.sort_by(|a, b| self.compare_records(a.1, b.1));
+    }
+    fn compare_records(self, a: &UsageRecord, b: &UsageRecord) -> Ordering {
+        {
             let order = if self.column == Column::Cost {
                 self.cost(
                     analytics::record_cost(a).map(|c| c.0),
@@ -135,6 +155,22 @@ impl Sort {
             order
                 .then_with(|| b.timestamp.cmp(&a.timestamp))
                 .then_with(|| a.id.cmp(&b.id))
+        }
+    }
+    pub fn projects(self, rows: &mut [ProjectRow]) {
+        rows.sort_by(|a, b| {
+            let order = if self.column == Column::Cost {
+                self.cost(a.totals.spend(), b.totals.spend())
+            } else {
+                self.direction(match self.column {
+                    Column::Project => a.project.to_lowercase().cmp(&b.project.to_lowercase()),
+                    Column::Tokens => a.totals.tokens.total().cmp(&b.totals.tokens.total()),
+                    Column::Sessions => a.totals.sessions.cmp(&b.totals.sessions),
+                    Column::Events => a.totals.events.cmp(&b.totals.events),
+                    _ => Ordering::Equal,
+                })
+            };
+            order.then_with(|| a.project.cmp(&b.project))
         });
     }
 }
@@ -150,10 +186,10 @@ impl CostFilter {
     pub const ALL: [Self; 4] = [Self::All, Self::Reported, Self::Estimated, Self::Unpriced];
     pub fn label(self) -> &'static str {
         match self {
-            Self::All => "All cost sources",
-            Self::Reported => "Reported cost",
-            Self::Estimated => "Estimated cost",
-            Self::Unpriced => "Unpriced usage",
+            Self::All => "All costs",
+            Self::Reported => "Reported",
+            Self::Estimated => "Estimated",
+            Self::Unpriced => "Unpriced",
         }
     }
     pub fn totals(self, totals: &Totals) -> bool {
@@ -225,6 +261,25 @@ mod tests {
         assert!(!sort.descending);
     }
     #[test]
+    fn third_click_restores_the_default_order() {
+        let mut sort = Sort::new(Column::Tokens);
+        assert!(sort.is_default());
+        sort.select(Column::Cost);
+        assert!(sort.descending && !sort.is_default());
+        sort.select(Column::Cost);
+        assert!(!sort.descending);
+        sort.select(Column::Cost);
+        assert!(sort.is_default());
+        assert_eq!(sort.column, Column::Tokens);
+        sort.select(Column::Tokens);
+        assert!(!sort.descending);
+        sort.select(Column::Tokens);
+        assert!(sort.is_default());
+        sort.select(Column::Model);
+        sort.reset();
+        assert!(sort.is_default());
+    }
+    #[test]
     fn missing_cost_stays_last_and_zero_is_a_real_amount() {
         for descending in [true, false] {
             let mut rows = vec![
@@ -235,6 +290,7 @@ mod tests {
             Sort {
                 column: Column::Cost,
                 descending,
+                default: Column::Cost,
             }
             .models(&mut rows);
             assert_eq!(rows[2].model, "missing");
@@ -285,5 +341,15 @@ mod tests {
         sort.select(Column::Time);
         sort.activity(&mut rows);
         assert_eq!(rows[0].tokens.total(), 30);
+        // The background path sorts positions into the history the same way.
+        let mut indexed = records.iter().enumerate().collect::<Vec<_>>();
+        sort.activity_indexed(&mut indexed);
+        assert!(
+            indexed
+                .iter()
+                .map(|(index, _)| &records[*index])
+                .zip(&rows)
+                .all(|(a, b)| a.id == b.id)
+        );
     }
 }

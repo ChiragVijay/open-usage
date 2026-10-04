@@ -78,6 +78,47 @@ fn model_sessions_count_unique_sessions_per_account_and_model() {
 }
 
 #[test]
+fn insights_group_projects_mix_and_local_hours() {
+    let first = record("model-a");
+    let mut other = record("model-b");
+    other.id = "b".into();
+    other.project = "other".into();
+    other.session = "second".into();
+    let mut old = record("model-a");
+    old.id = "old".into();
+    old.timestamp = Utc::now() - Duration::days(3);
+    let snapshot = Snapshot {
+        records: vec![first.clone(), other, old],
+        ..Default::default()
+    };
+    let now = Utc::now();
+    let insights = analytics::insights(&snapshot, &Config::default(), Period::Day, None, now);
+    assert_eq!(insights.projects.len(), 2);
+    let sample = insights
+        .projects
+        .iter()
+        .find(|row| row.project == "sample")
+        .unwrap();
+    assert_eq!(sample.totals.events, 1);
+    assert_eq!(sample.totals.sessions, 1);
+    let mix = insights.mix.iter().fold(Tokens::default(), |mut sum, bucket| {
+        sum.add(&bucket.tokens);
+        sum
+    });
+    assert_eq!(mix.total(), first.tokens.total() * 2);
+    let heat: u64 = insights.heatmap.iter().flatten().sum();
+    assert_eq!(heat, mix.total());
+    let claude_only = analytics::insights(
+        &snapshot,
+        &Config::default(),
+        Period::Week,
+        Some(Provider::Claude),
+        now,
+    );
+    assert!(claude_only.projects.is_empty());
+}
+
+#[test]
 fn codex_cumulative_counts_and_repeated_snapshots_do_not_double_count() {
     let lines = [
         json!({"type":"session_meta","payload":{"id":"session-1","cwd":"C:\\dev\\atlas"}})

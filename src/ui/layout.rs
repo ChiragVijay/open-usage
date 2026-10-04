@@ -1,6 +1,10 @@
 //! Home keeps every current account visible; crowded windows use compact rows.
 
-pub const HEADER_HEIGHT: f32 = 48.;
+pub const HEADER_HEIGHT: f32 = 52.;
+/// Space reserved for the usage chart before accounts may scroll; dense
+/// layouts keep a smaller floor so three accounts still fit at minimum size.
+pub const MIN_CHART: f32 = 150.;
+pub const MIN_DENSE_CHART: f32 = 120.;
 
 #[derive(Debug, Clone, Copy)]
 pub struct OverviewLayout {
@@ -29,6 +33,11 @@ pub fn page_padding(width: f32, height: f32) -> f32 {
     }
 }
 
+/// Width available to page content beside the sidebar.
+pub fn content_width(width: f32, height: f32) -> f32 {
+    width - sidebar_width(width) - page_padding(width, height) * 2.
+}
+
 impl OverviewLayout {
     pub fn new(width: f32, height: f32, accounts: usize, limits: usize) -> Self {
         let padding = page_padding(width, height);
@@ -36,13 +45,14 @@ impl OverviewLayout {
         let height = height - HEADER_HEIGHT - padding * 2.;
         let dense = height < 660. || width < 650.;
         let gap = if dense { 8. } else { 12. };
-        let summary_height = if dense { 56. } else { 76. };
-        let chrome = 28. + summary_height + 20. + 20. + gap * 5.;
+        let summary_height = if dense { 64. } else { 80. };
+        let chrome = summary_height + 20. + gap * 3.;
         let available = height - chrome;
         let card_columns = ((width + gap) / (260. + gap)).floor().max(1.) as usize;
         let card_columns = card_columns.min(accounts.max(1));
         let card_rows = accounts.max(1).div_ceil(card_columns);
-        let preferred_chart = (height * 0.24).clamp(84., 220.);
+        let min_chart = if dense { MIN_DENSE_CHART } else { MIN_CHART };
+        let preferred_chart = (height * 0.3).clamp(min_chart, 280.);
         let card_budget = (available - preferred_chart - card_rows.saturating_sub(1) as f32 * gap)
             / card_rows as f32;
         let slots = ((card_budget - 124.) / 48.).floor().max(0.) as usize;
@@ -62,7 +72,7 @@ impl OverviewLayout {
         let grid_height = rows as f32 * item_height + rows.saturating_sub(1) as f32 * gap;
         // A bounded account region handles a future provider count larger than the screen.
         // Six providers fit together at normal desktop sizes.
-        let accounts_height = grid_height.min(available - 64.);
+        let accounts_height = grid_height.min(available - min_chart);
         Self {
             width,
             gap,
@@ -94,7 +104,7 @@ mod tests {
                 for limits in [0, 1, 2, 4, 12] {
                     let layout = OverviewLayout::new(width, height, 3, limits);
                     assert!(!layout.scroll_accounts, "{width}x{height}: {layout:?}");
-                    assert!(layout.chart_height >= 64.);
+                    assert!(layout.chart_height >= MIN_DENSE_CHART);
                     assert!(layout.item_width() >= 260.);
                 }
             }
@@ -108,15 +118,13 @@ mod tests {
                 let layout = OverviewLayout::new(width, height, accounts, 4);
                 let occupied = HEADER_HEIGHT
                     + page_padding(width, height) * 2.
-                    + 28.
                     + layout.summary_height
                     + 20.
-                    + 20.
-                    + layout.gap * 5.
+                    + layout.gap * 3.
                     + layout.accounts_height
                     + layout.chart_height;
                 assert!((occupied - height).abs() < 0.01);
-                assert!(layout.accounts_height >= 80. && layout.chart_height >= 64.);
+                assert!(layout.accounts_height >= 80. && layout.chart_height >= MIN_DENSE_CHART);
             }
         }
     }

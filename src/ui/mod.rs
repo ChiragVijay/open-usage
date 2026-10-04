@@ -1,3 +1,7 @@
+mod charts;
+mod controls;
+mod derived;
+mod insights;
 mod layout;
 mod table;
 mod theme;
@@ -16,15 +20,20 @@ use open_usage::{
     store::Store,
 };
 use std::{
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        Arc,
+        mpsc::{self, Receiver, Sender},
+    },
     time::{Duration, Instant},
 };
 use table::{Column, CostFilter, Sort, Table};
+use controls::Segment;
 use theme::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Overview,
+    Insights,
     Activity,
     Models,
     Limits,
@@ -35,6 +44,7 @@ impl Page {
     fn title(self) -> &'static str {
         match self {
             Self::Overview => "Accounts",
+            Self::Insights => "Insights",
             Self::Activity => "Activity",
             Self::Models => "Models",
             Self::Limits => "Limits",
@@ -45,12 +55,20 @@ impl Page {
     fn icon(self) -> &'static str {
         match self {
             Self::Overview => "overview",
+            Self::Insights => "insights",
             Self::Activity => "activity",
             Self::Models => "models",
             Self::Limits => "limits",
             Self::Connections => "connections",
             Self::Settings => "settings",
         }
+    }
+    /// Pages whose numbers follow the selected period.
+    fn uses_period(self) -> bool {
+        matches!(
+            self,
+            Self::Overview | Self::Insights | Self::Activity | Self::Models
+        )
     }
 }
 #[derive(Clone)]
@@ -61,6 +79,7 @@ enum UiAction {
     Provider(Option<Provider>),
     AccountActivity(Provider),
     Sort(Table, Column),
+    ResetSort(Table),
     CostFilter(Table, CostFilter),
     ClearFilters(Table),
     Refresh,
@@ -83,18 +102,33 @@ enum UiAction {
 }
 
 enum RefreshMsg {
-    Update(Snapshot),
-    Done(Result<Snapshot, String>),
+    /// The cached history, read from disk after the window opens.
+    Loaded(Option<Snapshot>),
+    Update(Arc<Snapshot>),
+    Done(Result<Arc<Snapshot>, String>),
+    Message(String),
 }
 
 pub struct Dashboard {
     config: Config,
-    live: Snapshot,
+    /// Shared with background work, so handing it off never copies the history.
+    live: Arc<Snapshot>,
+    /// Bumped whenever derived values must be recomputed.
+    version: u64,
+    /// The instant derived values are computed for; advances with `version`.
+    now: chrono::DateTime<Utc>,
+    /// Bumped on every settings change.
+    config_revision: u64,
+    derived: derived::Derived,
+    has_records: [bool; Provider::COUNT],
+    loading: bool,
+    saver: Sender<Config>,
     page: Page,
     period: Period,
     provider: Option<Provider>,
     token_chart: bool,
-    hovered_day: Option<usize>,
+    /// Hovered chart and bar index, for dimming the other bars.
+    hovered: Option<(&'static str, usize)>,
     refreshing: bool,
     pending_refresh: bool,
     tray_attempted: bool,
@@ -113,6 +147,7 @@ pub struct Dashboard {
     activity_query: Entity<InputState>,
     model_sort: Sort,
     activity_sort: Sort,
+    project_sort: Sort,
     model_cost: CostFilter,
     activity_cost: CostFilter,
     _input_subscriptions: Vec<Subscription>,
@@ -128,13 +163,28 @@ impl Dashboard {
             Ok(config) => (config, None),
             Err(error) => (Config::default(), Some(error.to_string())),
         };
-        let mut live = Store::open()
-            .and_then(|store| store.load())
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        for provider in &mut live.providers {
-            provider.stale = true;
+        // History can be large: read it after the window is up.
+        {
+            let sender = sender.clone();
+            std::thread::spawn(move || {
+                let snapshot = Store::open().and_then(|store| store.load()).ok().flatten();
+                let _ = sender.send(RefreshMsg::Loaded(snapshot));
+            });
+        }
+        // Settings are written by one thread in order, keeping only the latest.
+        let (saver, saves) = mpsc::channel::<Config>();
+        {
+            let sender = sender.clone();
+            std::thread::spawn(move || {
+                while let Ok(mut config) = saves.recv() {
+                    while let Ok(newer) = saves.try_recv() {
+                        config = newer;
+                    }
+                    if let Err(error) = config.save() {
+                        let _ = sender.send(RefreshMsg::Message(error.to_string()));
+                    }
+                }
+            });
         }
         open_usage::pricing::start();
         sync_components(config.dark, window, cx);
@@ -164,26 +214,36 @@ impl Dashboard {
                 .clean_on_escape()
         });
         let input_subscriptions = vec![
-            cx.subscribe(&model_query, |_, _, event: &InputEvent, cx| {
+            // The input paints the keystroke itself. Filtering starts in the
+            // background at once and replaces any search still running.
+            cx.subscribe(&model_query, |view, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
-                    cx.notify();
+                    view.ensure_derived(cx);
                 }
             }),
             cx.subscribe(&activity_query, |view, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     view.activity_page = 0;
+                    view.ensure_derived(cx);
                     cx.notify();
                 }
             }),
         ];
-        let mut view = Self {
+        let view = Self {
             config,
-            live,
+            live: Arc::new(Snapshot::default()),
+            version: 0,
+            now: Utc::now(),
+            config_revision: 0,
+            derived: Default::default(),
+            has_records: [false; Provider::COUNT],
+            loading: true,
+            saver,
             page: Page::Overview,
             period: Period::Month,
             provider: None,
             token_chart: true,
-            hovered_day: None,
+            hovered: None,
             refreshing: false,
             pending_refresh: false,
             tray_attempted: false,
@@ -202,13 +262,13 @@ impl Dashboard {
             activity_query,
             model_sort: Sort::new(Column::Tokens),
             activity_sort: Sort::new(Column::Time),
+            project_sort: Sort::new(Column::Tokens),
             model_cost: CostFilter::All,
             activity_cost: CostFilter::All,
             _input_subscriptions: input_subscriptions,
             activity_rows: None,
             detail: None,
         };
-        view.refresh(cx);
         cx.spawn_in(window, async move |view, cx| {
             loop {
                 cx.background_executor()
@@ -249,14 +309,28 @@ impl Dashboard {
         self.toast = Some((text.into(), Instant::now()));
         cx.notify();
     }
+    /// Queues the settings for the saver thread; the UI never waits on disk.
     fn save(&mut self, cx: &mut Context<Self>) {
-        if let Err(error) = self.config.save() {
-            self.message(error.to_string(), cx);
-        }
+        self.config_revision += 1;
+        let _ = self.saver.send(self.config.clone());
         cx.notify();
     }
+    /// Marks every derived value out of date.
+    fn invalidate(&mut self) {
+        self.version += 1;
+        self.now = Utc::now();
+    }
+    fn set_live(&mut self, snapshot: Arc<Snapshot>) {
+        let mut has_records = [false; Provider::COUNT];
+        for record in &snapshot.records {
+            has_records[record.provider.index()] = true;
+        }
+        self.has_records = has_records;
+        self.live = snapshot;
+        self.invalidate();
+    }
     fn refresh(&mut self, cx: &mut Context<Self>) {
-        if self.refreshing {
+        if self.refreshing || self.loading {
             self.pending_refresh = true;
             return;
         }
@@ -267,13 +341,22 @@ impl Dashboard {
         let sender = self.sender.clone();
         std::thread::spawn(move || {
             let sender_done = sender.clone();
-            let result = std::panic::catch_unwind(|| {
+            // Accounts report in bursts. Publish at most a few intermediate
+            // copies of the history; the final result always follows.
+            let last = std::cell::Cell::new(None::<Instant>);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 providers::collect_with(&config, &previous, |snapshot| {
-                    let _ = sender.send(RefreshMsg::Update(snapshot.clone()));
+                    if last
+                        .get()
+                        .is_none_or(|at| at.elapsed() >= Duration::from_millis(300))
+                    {
+                        last.set(Some(Instant::now()));
+                        let _ = sender.send(RefreshMsg::Update(Arc::new(snapshot.clone())));
+                    }
                 })
-            });
+            }));
             let result = match result {
-                Ok(result) => result.map_err(|error| error.to_string()),
+                Ok(result) => result.map(Arc::new).map_err(|error| error.to_string()),
                 Err(_) => Err("Usage scan stopped unexpectedly. Refresh to retry.".into()),
             };
             let _ = sender_done.send(RefreshMsg::Done(result));
@@ -301,33 +384,53 @@ impl Dashboard {
                 }
             }
         }
+        // Apply only the newest history among this tick's messages.
+        let mut latest = None;
         while let Ok(message) = self.receiver.try_recv() {
             match message {
-                RefreshMsg::Update(snapshot) => self.live = snapshot,
+                RefreshMsg::Loaded(snapshot) => {
+                    self.loading = false;
+                    if let Some(mut snapshot) = snapshot {
+                        for provider in &mut snapshot.providers {
+                            provider.stale = true;
+                        }
+                        latest = Some(Arc::new(snapshot));
+                    }
+                    self.pending_refresh = true;
+                }
+                RefreshMsg::Update(snapshot) => latest = Some(snapshot),
                 RefreshMsg::Done(result) => {
                     self.refreshing = false;
                     match result {
-                        Ok(snapshot) => self.live = snapshot,
+                        Ok(snapshot) => latest = Some(snapshot),
                         Err(error) => self.message(error, cx),
                     }
-                    if self.pending_refresh {
-                        self.pending_refresh = false;
-                        self.refresh(cx);
-                    }
                 }
+                RefreshMsg::Message(text) => self.message(text, cx),
             }
-            self.update_tray();
             cx.notify();
         }
+        if let Some(snapshot) = latest {
+            self.set_live(snapshot);
+        }
+        if self.pending_refresh && !self.refreshing && !self.loading {
+            self.pending_refresh = false;
+            self.refresh(cx);
+        }
         if open_usage::pricing::take_updated() {
+            self.invalidate();
             cx.notify();
         }
         if self.last_minute.elapsed() >= Duration::from_secs(60) {
             self.last_minute = Instant::now();
-            self.update_tray();
+            self.invalidate();
             cx.notify();
         }
+        if self.tray.is_some() {
+            self.ensure_today(cx);
+        }
         if !self.refreshing
+            && !self.loading
             && self.last_refresh.elapsed() >= Duration::from_secs(self.config.refresh_seconds)
         {
             self.refresh(cx);
@@ -396,11 +499,7 @@ impl Dashboard {
                 self.config.enabled[status.provider.index()]
                     && (status.detected
                         || status.connected
-                        || self
-                            .data()
-                            .records
-                            .iter()
-                            .any(|record| record.provider == status.provider))
+                        || self.has_records[status.provider.index()])
             })
             .collect()
     }
@@ -452,10 +551,12 @@ impl Dashboard {
             None => ("—".into(), "No public rate"),
         }
     }
-    fn update_tray(&self) {
+    /// Uses the cached figures for today; runs again whenever they are recomputed.
+    fn update_tray(&mut self) {
         if let Some(tray) = &self.tray {
-            let analysis =
-                analytics::analyze(self.data(), &self.config, Period::Today, None, Utc::now());
+            let Some(analysis) = self.derived.today.value() else {
+                return;
+            };
             let mut tooltip = format!(
                 "Open Usage\n{} tokens today",
                 self.number(analysis.totals.tokens.total())
@@ -529,12 +630,12 @@ impl Dashboard {
             UiAction::Period(period) => {
                 self.period = period;
                 self.activity_page = 0;
-                self.hovered_day = None;
+                self.hovered = None;
             }
             UiAction::Provider(provider) => {
                 self.provider = provider;
                 self.activity_page = 0;
-                self.hovered_day = None;
+                self.hovered = None;
             }
             UiAction::Refresh => self.refresh(cx),
             UiAction::AccountActivity(provider) => {
@@ -553,10 +654,19 @@ impl Dashboard {
                     self.activity_sort.select(column);
                     self.activity_page = 0;
                 }
+                Table::Projects => self.project_sort.select(column),
+            },
+            UiAction::ResetSort(table) => match table {
+                Table::Models => self.model_sort.reset(),
+                Table::Activity => {
+                    self.activity_sort.reset();
+                    self.activity_page = 0;
+                }
+                Table::Projects => self.project_sort.reset(),
             },
             UiAction::CostFilter(table, filter) => match table {
                 Table::Models => self.model_cost = filter,
-                Table::Activity => {
+                Table::Activity | Table::Projects => {
                     self.activity_cost = filter;
                     self.activity_page = 0;
                 }
@@ -569,7 +679,7 @@ impl Dashboard {
                         self.model_query
                             .update(cx, |input, cx| input.set_value("", window, cx));
                     }
-                    Table::Activity => {
+                    Table::Activity | Table::Projects => {
                         self.activity_cost = CostFilter::All;
                         self.activity_page = 0;
                         self.activity_query
@@ -583,20 +693,36 @@ impl Dashboard {
                     .set_file_name("usage.csv")
                     .save_file()
                 {
-                    let filtered = (self.page == Page::Activity).then(|| Snapshot {
-                        records: self.activity_records(cx).into_iter().cloned().collect(),
-                        ..Default::default()
-                    });
-                    match analytics::export_csv(
-                        &path,
-                        filtered.as_ref().unwrap_or(self.data()),
-                        &self.config,
-                        self.period,
-                        self.provider,
-                    ) {
-                        Ok(count) => self.message(format!("Exported {count} usage records"), cx),
-                        Err(error) => self.message(error.to_string(), cx),
-                    }
+                    // Writing can take a while for long histories; do it off the UI thread.
+                    let activity = (self.page == Page::Activity)
+                        .then(|| self.derived.activity.value())
+                        .flatten();
+                    let (data, config) = (self.live.clone(), self.config.clone());
+                    let (period, provider) = (self.period, self.provider);
+                    self.message("Exporting…", cx);
+                    cx.spawn(async move |view, cx| {
+                        let result = cx
+                            .background_executor()
+                            .spawn(async move {
+                                let filtered = activity.map(|activity| Snapshot {
+                                    records: activity.records().cloned().collect(),
+                                    ..Default::default()
+                                });
+                                analytics::export_csv(
+                                    &path,
+                                    filtered.as_ref().unwrap_or(&data),
+                                    &config,
+                                    period,
+                                    provider,
+                                )
+                            })
+                            .await;
+                        let _ = view.update(cx, |view, cx| match result {
+                            Ok(count) => view.message(format!("Exported {count} usage records"), cx),
+                            Err(error) => view.message(error.to_string(), cx),
+                        });
+                    })
+                    .detach();
                 }
             }
             UiAction::Privacy => {
@@ -626,7 +752,7 @@ impl Dashboard {
             UiAction::Quit => cx.quit(),
             UiAction::Metric(tokens) => {
                 self.token_chart = tokens;
-                self.hovered_day = None;
+                self.hovered = None;
             }
             UiAction::AddHome(provider) => {
                 if let Some(path) = rfd::FileDialog::new()
@@ -654,15 +780,24 @@ impl Dashboard {
                     .add_filter("Cursor usage export", &["csv"])
                     .pick_file()
                 {
-                    match providers::history::read_cursor_csv(&path) {
-                        Ok(records) => {
-                            self.config.cursor_imports = vec![path];
-                            self.save(cx);
-                            self.refresh(cx);
-                            self.message(format!("Imported {} Cursor events", records.len()), cx);
-                        }
-                        Err(error) => self.message(error.to_string(), cx),
-                    }
+                    self.message("Reading Cursor export…", cx);
+                    cx.spawn(async move |view, cx| {
+                        let read = path.clone();
+                        let result = cx
+                            .background_executor()
+                            .spawn(async move { providers::history::read_cursor_csv(&read) })
+                            .await;
+                        let _ = view.update(cx, |view, cx| match result {
+                            Ok(records) => {
+                                view.config.cursor_imports = vec![path];
+                                view.save(cx);
+                                view.refresh(cx);
+                                view.message(format!("Imported {} Cursor events", records.len()), cx);
+                            }
+                            Err(error) => view.message(error.to_string(), cx),
+                        });
+                    })
+                    .detach();
                 }
             }
             UiAction::ClearCursor => {
@@ -697,41 +832,6 @@ impl Dashboard {
         }
         cx.notify();
     }
-    fn button(
-        &self,
-        id: impl Into<String>,
-        text: impl Into<String>,
-        glyph: Option<&'static str>,
-        active: bool,
-        action: UiAction,
-        cx: &Context<Self>,
-    ) -> gpui_component::button::Button {
-        use gpui_component::{
-            Sizable,
-            button::{Button, ButtonCustomVariant, ButtonVariants},
-        };
-        let theme = self.theme();
-        Button::new(SharedString::from(id.into()))
-            .label(text.into())
-            .small()
-            .text_size(px(12.))
-            .h(px(28.))
-            .rounded(px(5.))
-            .custom(
-                ButtonCustomVariant::new(cx)
-                    .color(rgb(if active { theme.wash } else { theme.panel }).into())
-                    .foreground(rgb(if active { theme.accent } else { theme.ink }).into())
-                    .border(rgb(if active { theme.wash } else { theme.line }).into())
-                    .hover(rgb(theme.wash).into())
-                    .active(rgb(theme.wash).into()),
-            )
-            .when_some(glyph, |button, glyph| {
-                button.icon(gpui_component::Icon::default().path(glyph))
-            })
-            .on_click(
-                cx.listener(move |view, _, window, cx| view.perform(action.clone(), window, cx)),
-            )
-    }
     fn key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
         let mods = event.keystroke.modifiers;
@@ -763,11 +863,12 @@ impl Dashboard {
                 "p" => Some(UiAction::Privacy),
                 "q" => Some(UiAction::Quit),
                 "1" => Some(UiAction::Page(Page::Overview)),
-                "2" => Some(UiAction::Page(Page::Models)),
-                "3" => Some(UiAction::Page(Page::Limits)),
+                "2" => Some(UiAction::Page(Page::Insights)),
+                "3" => Some(UiAction::Page(Page::Models)),
                 "4" => Some(UiAction::Page(Page::Activity)),
-                "5" => Some(UiAction::Page(Page::Connections)),
-                "6" => Some(UiAction::Page(Page::Settings)),
+                "5" => Some(UiAction::Page(Page::Limits)),
+                "6" => Some(UiAction::Page(Page::Connections)),
+                "7" => Some(UiAction::Page(Page::Settings)),
                 _ => None,
             }
         } else {
@@ -796,6 +897,8 @@ impl Dashboard {
 
 impl Render for Dashboard {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Starts background work for anything out of date; renders what is ready.
+        self.ensure_derived(cx);
         let theme = self.theme();
         let viewport = window.viewport_size();
         let width = f32::from(viewport.width);
@@ -806,11 +909,12 @@ impl Render for Dashboard {
         } else {
             let page = match self.page {
                 Page::Overview => self.overview(width, height, cx),
+                Page::Insights => self.insights_view(width, height, cx),
                 Page::Activity => self.activity(width, height, cx),
-                Page::Models => self.models_view(width, cx),
-                Page::Limits => self.limits_view(width, cx),
+                Page::Models => self.models_view(width, height, cx),
+                Page::Limits => self.limits_view(width, height, cx),
                 Page::Connections => self.connections(cx),
-                Page::Settings => self.settings(cx),
+                Page::Settings => self.settings(width, cx),
             };
             div()
                 .flex()
@@ -822,7 +926,7 @@ impl Render for Dashboard {
                         .min_w_0()
                         .flex()
                         .flex_col()
-                        .child(self.header(width < 900., cx))
+                        .child(self.header(width, cx))
                         .child({
                             let pinned =
                                 matches!(self.page, Page::Overview | Page::Activity | Page::Models);
@@ -841,7 +945,7 @@ impl Render for Dashboard {
                 )
                 .into_any_element()
         };
-        div()
+        tabular(div())
             .id("root")
             .track_focus(&self.focus)
             .size_full()
@@ -865,13 +969,15 @@ impl Render for Dashboard {
                 root.child(
                     div()
                         .absolute()
-                        .bottom(px(22.))
-                        .right(px(24.))
-                        .max_w(px(520.))
-                        .rounded(px(6.))
+                        .bottom(px(20.))
+                        .right(px(20.))
+                        .max_w(px(480.))
+                        .rounded(px(PANEL_RADIUS))
                         .bg(rgb(theme.ink))
                         .text_color(rgb(theme.panel))
-                        .p(px(14.))
+                        .text_size(px(13.))
+                        .px(px(14.))
+                        .py(px(10.))
                         .shadow_lg()
                         .child(message.clone()),
                 )
