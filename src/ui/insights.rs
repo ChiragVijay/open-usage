@@ -254,12 +254,12 @@ impl Dashboard {
             .border_color(rgb(theme.line))
             .bg(rgb(theme.bg))
             .child(
-                self.sort_header(Table::Projects, Column::Project, None, false, cx)
+                self.sort_header(Table::Projects, Column::Project, None, false, false, cx)
                     .flex_1()
                     .min_w_0(),
             )
             .children(numbers.iter().map(|(column, width)| {
-                self.sort_header(Table::Projects, *column, Some(*width), true, cx)
+                self.sort_header(Table::Projects, *column, Some(*width), true, false, cx)
             }));
         let body = div().children(rows.iter().take(100).enumerate().map(|(index, row)| {
             div()

@@ -11,6 +11,11 @@ pub(super) const ROW_HEIGHT: f32 = 40.;
 const TABLE_HEADER: f32 = 36.;
 const TABLE_FOOTER: f32 = 44.;
 const FILTER_GAP: f32 = 12.;
+/// Inset and gap shared by a table header and every row under it.
+const TABLE_PAD: f32 = 16.;
+const COLUMN_GAP: f32 = 12.;
+/// Panel border on each side. Header and body both sit inside it.
+const TABLE_BORDER: f32 = 1.;
 
 fn filters_height(content_width: f32) -> f32 {
     if content_width < 650. {
@@ -334,46 +339,67 @@ impl Dashboard {
         muted: bool,
     ) -> Div {
         let theme = self.theme();
+        // Numeric headers pack their label to the column's right edge. The
+        // value has to do the same: text_align on a shrink-wrapped text node
+        // stays on the left, so the number never sits under the heading.
         div()
-            .when_some(width, |cell, width| cell.w(px(width)).flex_shrink_0())
+            .when_some(width, |cell, width| {
+                cell.w(px(width)).min_w(px(0.)).flex_shrink_0().overflow_hidden()
+            })
+            .flex()
+            .items_center()
+            .min_w(px(0.))
+            .when(numeric, |cell| cell.justify_end())
             .text_size(px(13.))
             .truncate()
             .text_color(rgb(if muted { theme.muted } else { theme.ink }))
-            .when(numeric, |cell| cell.text_align(TextAlign::Right))
             .child(text.to_owned())
     }
     fn account_cell(&self, provider: Provider, width: f32) -> Div {
         div()
             .w(px(width))
+            .min_w(px(0.))
             .flex_shrink_0()
+            .overflow_hidden()
             .flex()
             .items_center()
-            .gap(px(6.))
+            .gap(px(MARK_GAP))
             .child(dot(provider, self.config.dark))
-            .child(self.table_cell(provider.name(), None, false, false))
+            .child(
+                self.table_cell(provider.name(), None, false, false)
+                    .flex_1()
+                    .min_w(px(0.)),
+            )
     }
     /// Model name, with the account dot inline when the account column is hidden.
-    fn model_cell(&self, model: &str, provider: Option<Provider>) -> Div {
+    fn model_cell(&self, model: &str, provider: Option<Provider>, width: f32) -> Div {
         div()
-            .flex_1()
-            .min_w_0()
+            .w(px(width))
+            .min_w(px(0.))
+            .flex_shrink_0()
+            .overflow_hidden()
             .flex()
             .items_center()
-            .gap(px(6.))
+            .gap(px(MARK_GAP))
             .when_some(provider, |cell, provider| {
                 cell.child(dot(provider, self.config.dark))
             })
-            .child(self.table_cell(model, None, false, false).min_w_0())
+            .child(
+                self.table_cell(model, None, false, false)
+                    .flex_1()
+                    .min_w(px(0.)),
+            )
     }
     fn table_header(&self) -> Div {
         let theme = self.theme();
         div()
+            .w_full()
             .h(px(TABLE_HEADER))
             .flex_shrink_0()
-            .px(px(16.))
+            .px(px(TABLE_PAD))
             .flex()
             .items_center()
-            .gap(px(12.))
+            .gap(px(COLUMN_GAP))
             .bg(rgb(theme.bg))
             .border_b_1()
             .border_color(rgb(theme.line))
@@ -381,11 +407,12 @@ impl Dashboard {
     fn table_row(&self, index: usize) -> Div {
         let theme = self.theme();
         div()
+            .w_full()
             .h(px(ROW_HEIGHT))
-            .px(px(16.))
+            .px(px(TABLE_PAD))
             .flex()
             .items_center()
-            .gap(px(12.))
+            .gap(px(COLUMN_GAP))
             .when(index > 0, |row| row.border_t_1().border_color(rgb(theme.grid)))
     }
     /// Count on the left, then "Reset sort" when the order was changed.
@@ -507,13 +534,18 @@ impl Dashboard {
             .child(self.account_select(&format!("{table:?}"), cx))
             .child(costs)
             .child(clear);
-        let search = Input::new(query)
-            .small()
-            .h(px(CONTROL_HEIGHT))
-            .cleanable(true)
-            .prefix(gpui_component::IconName::Search)
-            .flex_1()
-            .min_w(px(160.));
+        let search: gpui::AnyElement = if table == Table::Activity {
+            self.activity_search().into_any_element()
+        } else {
+            Input::new(query)
+                .small()
+                .h(px(CONTROL_HEIGHT))
+                .cleanable(true)
+                .prefix(gpui_component::IconName::Search)
+                .flex_1()
+                .min_w(px(160.))
+                .into_any_element()
+        };
         let body = div().flex_shrink_0().flex().flex_col().gap(px(8.));
         if width >= 650. {
             body.child(
@@ -530,6 +562,31 @@ impl Dashboard {
                 controls.child(div().flex_1()).children(extras),
             )
         }
+    }
+    /// Activity search, sized and colored like the filters beside it.
+    /// Placeholder and clear stay on the existing input state.
+    fn activity_search(&self) -> gpui_component::input::Input {
+        use gpui_component::{Sizable, input::Input};
+        let theme = self.theme();
+        Input::new(&self.activity_query)
+            .small()
+            .h(px(CONTROL_HEIGHT))
+            .py(px(0.))
+            .pl(px(10.))
+            .pr(px(8.))
+            .bg(rgb(theme.panel))
+            .text_size(px(12.))
+            .text_color(rgb(theme.ink))
+            .rounded(px(RADIUS))
+            .cleanable(true)
+            .prefix(
+                icon("search", theme)
+                    .size(px(14.))
+                    .flex_shrink_0()
+                    .text_color(rgb(theme.muted)),
+            )
+            .flex_1()
+            .min_w(px(180.))
     }
 
     // ----- Accounts -------------------------------------------------------
@@ -950,7 +1007,7 @@ impl Dashboard {
         let (shown, total, estimates) = result
             .as_ref()
             .map_or((0, 0, false), |r| (r.rows.len(), r.total, r.estimates));
-        let columns = model_columns(content_width);
+        let columns = model_column_widths(content_width);
         let narrow = content_width < 650.;
         let count = if shown == total {
             format!("{total} models")
@@ -994,23 +1051,16 @@ impl Dashboard {
                     .flex()
                     .flex_col()
                     .overflow_hidden()
-                    .child(
-                        self.table_header()
-                            .child(
-                                self.sort_header(Table::Models, Column::Model, None, false, cx)
-                                    .flex_1()
-                                    .min_w_0(),
-                            )
-                            .children(columns.iter().map(|(column, width)| {
-                                self.sort_header(
-                                    Table::Models,
-                                    *column,
-                                    Some(*width),
-                                    *column != Column::Account,
-                                    cx,
-                                )
-                            })),
-                    )
+                    .child(self.table_header().children(columns.iter().map(|(column, width)| {
+                        self.sort_header(
+                            Table::Models,
+                            *column,
+                            Some(*width),
+                            column_align_end(*column),
+                            column_has_mark(*column, narrow),
+                            cx,
+                        )
+                    })))
                     .child(if shown == 0 {
                         div()
                             .flex_1()
@@ -1039,13 +1089,13 @@ impl Dashboard {
         narrow: bool,
     ) -> Div {
         let totals = &row.totals;
-        self.table_row(index)
-            .child(self.model_cell(&row.model, narrow.then_some(row.provider)))
-            .children(columns.iter().map(|(column, width)| {
+        self.table_row(index).children(columns.iter().map(|(column, width)| match column {
+            Column::Model => self
+                .model_cell(&row.model, narrow.then_some(row.provider), *width)
+                .into_any_element(),
+            Column::Account => self.account_cell(row.provider, *width).into_any_element(),
+            _ => {
                 let text = match column {
-                    Column::Account => {
-                        return self.account_cell(row.provider, *width).into_any_element();
-                    }
                     Column::Tokens => self.number(totals.tokens.total()),
                     Column::Input => self.number(totals.tokens.input),
                     Column::Output => self.number(totals.tokens.output),
@@ -1055,9 +1105,10 @@ impl Dashboard {
                     _ => self.cost_text(totals),
                 };
                 let muted = *column != Column::Tokens && *column != Column::Cost;
-                self.table_cell(&text, Some(*width), true, muted)
+                self.table_cell(&text, Some(*width), column_align_end(*column), muted)
                     .into_any_element()
-            }))
+            }
+        }))
     }
 
     // ----- Limits ---------------------------------------------------------
@@ -1191,7 +1242,7 @@ impl Dashboard {
         let estimates = visible
             .iter()
             .any(|record| matches!(analytics::record_cost(record), Some((_, true))));
-        let columns = activity_columns(content_width);
+        let columns = activity_column_widths(content_width);
         let narrow = content_width < 650.;
         let count = if matched == 0 {
             if total == 0 {
@@ -1237,24 +1288,16 @@ impl Dashboard {
                     .flex()
                     .flex_col()
                     .overflow_hidden()
-                    .child(
-                        self.table_header().children(columns.iter().map(|(column, width)| {
-                            let numeric = matches!(column, Column::Tokens | Column::Cost);
-                            match width {
-                                Some(width) => self.sort_header(
-                                    Table::Activity,
-                                    *column,
-                                    Some(*width),
-                                    numeric,
-                                    cx,
-                                ),
-                                None => self
-                                    .sort_header(Table::Activity, *column, None, numeric, cx)
-                                    .flex_1()
-                                    .min_w_0(),
-                            }
-                        })),
-                    )
+                    .child(self.table_header().children(columns.iter().map(|(column, width)| {
+                        self.sort_header(
+                            Table::Activity,
+                            *column,
+                            Some(*width),
+                            column_align_end(*column),
+                            column_has_mark(*column, narrow),
+                            cx,
+                        )
+                    })))
                     .child(
                         div()
                             .id(SharedString::from(format!("activity-rows-{page}-{page_size}")))
@@ -1300,7 +1343,7 @@ impl Dashboard {
         &self,
         record: &UsageRecord,
         column: Column,
-        width: Option<f32>,
+        width: f32,
         narrow: bool,
     ) -> AnyElement {
         let time = |format: &str| {
@@ -1311,21 +1354,14 @@ impl Dashboard {
                 .to_string()
         };
         match column {
-            Column::Account => self
-                .account_cell(record.provider, width.unwrap_or(100.))
+            Column::Account => self.account_cell(record.provider, width).into_any_element(),
+            Column::Model => self
+                .model_cell(&record.model, narrow.then_some(record.provider), width)
                 .into_any_element(),
-            Column::Model => {
-                let cell = self.model_cell(&record.model, narrow.then_some(record.provider));
-                match width {
-                    Some(width) => cell.w(px(width)).flex_none(),
-                    None => cell,
-                }
-                .into_any_element()
-            }
             Column::Time => self
                 .table_cell(
                     &time(if narrow { "%-m/%-d %H:%M" } else { "%b %-d, %H:%M" }),
-                    width,
+                    Some(width),
                     false,
                     true,
                 )
@@ -1338,14 +1374,10 @@ impl Dashboard {
                 } else {
                     &record.project
                 };
-                match width {
-                    Some(_) => self.table_cell(project, width, false, true),
-                    None => self.table_cell(project, None, false, true).flex_1().min_w_0(),
-                }
-                .into_any_element()
+                self.table_cell(project, Some(width), false, true).into_any_element()
             }
             Column::Tokens => self
-                .table_cell(&self.number(record.tokens.total()), width, true, false)
+                .table_cell(&self.number(record.tokens.total()), Some(width), true, false)
                 .into_any_element(),
             _ => {
                 let text = match analytics::record_cost(record) {
@@ -1353,8 +1385,7 @@ impl Dashboard {
                     Some((cost, _)) => self.money(cost),
                     None => analytics::empty_value().into(),
                 };
-                self.table_cell(&text, width, true, false)
-                    .into_any_element()
+                self.table_cell(&text, Some(width), true, false).into_any_element()
             }
         }
     }
@@ -2101,19 +2132,59 @@ impl Dashboard {
     }
 }
 
-/// Fixed-width numeric columns for the Models table, by available width.
-fn model_columns(width: f32) -> Vec<(Column, f32)> {
-    if width < 650. {
-        vec![(Column::Tokens, 72.), (Column::Cost, 80.)]
+/// Right-aligned columns. Time stays with the text columns.
+fn column_align_end(column: Column) -> bool {
+    matches!(
+        column,
+        Column::Tokens
+            | Column::Input
+            | Column::Output
+            | Column::CacheRead
+            | Column::CacheWrite
+            | Column::Sessions
+            | Column::Events
+            | Column::Cost
+    )
+}
+/// Account always draws a provider dot. Narrow tables fold that dot into Model.
+fn column_has_mark(column: Column, narrow: bool) -> bool {
+    column == Column::Account || (column == Column::Model && narrow)
+}
+/// Width inside the table padding. Header and rows both spend this on columns.
+fn table_track(content_width: f32, columns: usize) -> f32 {
+    let chrome =
+        TABLE_BORDER * 2. + TABLE_PAD * 2. + COLUMN_GAP * columns.saturating_sub(1) as f32;
+    (content_width - chrome).max(0.)
+}
+/// One width per column. `None` in `specs` shares whatever the fixed columns
+/// leave, so the header and the body cannot pick different x positions.
+fn resolve_columns(content_width: f32, specs: &[(Column, Option<f32>)]) -> Vec<(Column, f32)> {
+    let track = table_track(content_width, specs.len());
+    let fixed: f32 = specs.iter().filter_map(|(_, width)| *width).sum();
+    let flexes = specs.iter().filter(|(_, width)| width.is_none()).count();
+    let share = if flexes == 0 {
+        0.
+    } else {
+        ((track - fixed) / flexes as f32).max(48.)
+    };
+    specs
+        .iter()
+        .map(|(column, width)| (*column, width.unwrap_or(share)))
+        .collect()
+}
+/// Every Models column, including the flexible name, in header and row order.
+fn model_column_widths(width: f32) -> Vec<(Column, f32)> {
+    let fixed: &[(Column, f32)] = if width < 650. {
+        &[(Column::Tokens, 72.), (Column::Cost, 80.)]
     } else if width < 1000. {
-        vec![
+        &[
             (Column::Account, 100.),
             (Column::Tokens, 84.),
             (Column::CacheRead, 88.),
             (Column::Cost, 88.),
         ]
     } else {
-        vec![
+        &[
             (Column::Account, 100.),
             (Column::Tokens, 84.),
             (Column::Input, 76.),
@@ -2123,11 +2194,14 @@ fn model_columns(width: f32) -> Vec<(Column, f32)> {
             (Column::Sessions, 72.),
             (Column::Cost, 88.),
         ]
-    }
+    };
+    let mut specs = vec![(Column::Model, None)];
+    specs.extend(fixed.iter().copied().map(|(column, width)| (column, Some(width))));
+    resolve_columns(width, &specs)
 }
-/// Activity columns; `None` width takes the remaining space.
-fn activity_columns(width: f32) -> Vec<(Column, Option<f32>)> {
-    if width < 650. {
+/// Every Activity column, in header and row order.
+fn activity_column_widths(width: f32) -> Vec<(Column, f32)> {
+    let specs = if width < 650. {
         vec![
             (Column::Time, Some(80.)),
             (Column::Model, None),
@@ -2151,7 +2225,8 @@ fn activity_columns(width: f32) -> Vec<(Column, Option<f32>)> {
             (Column::Tokens, Some(84.)),
             (Column::Cost, Some(88.)),
         ]
-    }
+    };
+    resolve_columns(width, &specs)
 }
 struct ListedSource {
     text: String,
@@ -2280,7 +2355,10 @@ fn reset_text(at: Option<chrono::DateTime<Utc>>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::reported_error;
+    use super::{
+        activity_column_widths, column_align_end, model_column_widths, reported_error, table_track,
+    };
+    use crate::ui::table::Column;
 
     #[test]
     fn status_lines_with_separators_are_not_errors() {
@@ -2294,5 +2372,52 @@ mod tests {
         assert!(!reported_error(&format!("3 history files{sep}local")));
         assert!(reported_error("Sign in expired"));
         assert!(!reported_error(""));
+    }
+
+    #[test]
+    fn header_and_rows_share_one_column_width() {
+        for width in [420., 649., 650., 899., 900., 1000., 1400., 1920.] {
+            for columns in [model_column_widths(width), activity_column_widths(width)] {
+                assert!(columns.len() >= 3, "{width}");
+                let mut names: Vec<_> = columns.iter().map(|(column, _)| *column).collect();
+                let count = names.len();
+                names.sort_by_key(|column| format!("{column:?}"));
+                names.dedup();
+                assert_eq!(names.len(), count, "duplicate column at {width}");
+                let sum: f32 = columns.iter().map(|(_, column_width)| *column_width).sum();
+                let track = table_track(width, columns.len());
+                assert!(
+                    sum + 0.01 >= track,
+                    "widths {sum} fell short of track {track} at {width}: {columns:?}"
+                );
+                assert!(
+                    columns.iter().all(|(_, column_width)| *column_width >= 48.),
+                    "{width}: {columns:?}"
+                );
+            }
+        }
+        let wide = activity_column_widths(1200.);
+        let model = wide
+            .iter()
+            .find(|(column, _)| *column == Column::Model)
+            .unwrap()
+            .1;
+        assert!((model - (1200_f32 * 0.26).clamp(180., 320.)).abs() < 0.01);
+        let project = wide
+            .iter()
+            .find(|(column, _)| *column == Column::Project)
+            .unwrap()
+            .1;
+        assert!(project >= 48.);
+        assert_eq!(model_column_widths(500.)[0].0, Column::Model);
+        assert_eq!(activity_column_widths(500.)[0].0, Column::Time);
+        assert!(
+            !activity_column_widths(500.)
+                .iter()
+                .any(|(column, _)| *column == Column::Project)
+        );
+        assert!(column_align_end(Column::Cost));
+        assert!(!column_align_end(Column::Time));
+        assert!(!column_align_end(Column::Model));
     }
 }

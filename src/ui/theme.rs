@@ -57,6 +57,10 @@ impl Theme {
 pub const RADIUS: f32 = 6.;
 pub const PANEL_RADIUS: f32 = 10.;
 pub const CONTROL_HEIGHT: f32 = 30.;
+/// Provider dot, and the gap before the name beside it. Column headers that
+/// sit over a dotted cell reserve the same space.
+pub const MARK_SIZE: f32 = 7.;
+pub const MARK_GAP: f32 = 6.;
 /// Series colors from Notion's tag palette, so charts stay distinct without shouting.
 pub fn color(provider: Provider, dark: bool) -> u32 {
     match (provider, dark) {
@@ -136,6 +140,10 @@ pub fn sync_components(dark: bool, window: &mut gpui::Window, cx: &mut gpui::App
     theme.radius = px(RADIUS);
     theme.radius_lg = px(PANEL_RADIUS);
     theme.shadow = false;
+    // Search fields use the component input chrome. Match the app border and focus.
+    let app = Theme::new(dark);
+    theme.colors.input = rgb(app.line).into();
+    theme.colors.ring = rgb(app.focus).into();
 }
 /// Tabular figures keep columns of numbers aligned without a monospace font.
 pub fn tabular<E: Styled>(mut element: E) -> E {
@@ -244,6 +252,7 @@ impl gpui::AssetSource for Assets {
             "sort-down" => "<path d='M12 5v14m-5-5 5 5 5-5'/>",
             "sort-up" => "<path d='M12 19V5m-5 5 5-5 5 5'/>",
             "chevron" => "<path d='m6 9 6 6 6-6'/>",
+            "search" => "<circle cx='11' cy='11' r='6.5'/><path d='m16.2 16.2 4 4'/>",
             "close" => "<path d='M6 6l12 12M18 6 6 18'/>",
             "reset" => "<path d='M4 12a8 8 0 1 0 2.3-5.6M4 4v5h5'/>",
             "brand" => "<path d='M4 16V8a4 4 0 0 1 8 0v8a4 4 0 0 0 8 0V8M4 12h16'/>",
