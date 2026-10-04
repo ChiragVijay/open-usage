@@ -227,13 +227,16 @@ impl Dashboard {
         }
     }
     /// A clickable column heading. The arrow slot is always reserved, so the
-    /// heading never shifts when the sort changes.
+    /// heading never shifts when the sort changes. `leading_mark` reserves the
+    /// same dot slot the account and narrow model cells draw, so the label
+    /// starts on the value.
     pub(super) fn sort_header(
         &self,
         table: Table,
         column: Column,
         width: Option<f32>,
         numeric: bool,
+        leading_mark: bool,
         cx: &Context<Self>,
     ) -> Stateful<Div> {
         let theme = self.theme();
@@ -243,13 +246,16 @@ impl Dashboard {
         } else {
             theme.muted
         };
-        let glyph = div().w(px(12.)).flex_shrink_0().when_some(arrow, |slot, descending| {
-            slot.child(
-                icon(if descending { "sort-down" } else { "sort-up" }, theme)
-                    .size(px(12.))
-                    .text_color(rgb(theme.ink)),
-            )
-        });
+        let glyph = div()
+            .w(px(12.))
+            .flex_shrink_0()
+            .when_some(arrow, |slot, descending| {
+                slot.child(
+                    icon(if descending { "sort-down" } else { "sort-up" }, theme)
+                        .size(px(12.))
+                        .text_color(rgb(theme.ink)),
+                )
+            });
         let cell = div()
             .id(SharedString::from(format!("sort-{table:?}-{column:?}")))
             .h_full()
@@ -261,13 +267,28 @@ impl Dashboard {
             .font_weight(FontWeight::MEDIUM)
             .text_color(rgb(color))
             .hover(move |style| style.text_color(rgb(theme.ink)))
-            .when_some(width, |cell, width| cell.w(px(width)).flex_shrink_0())
+            .when_some(width, |cell, width| {
+                cell.w(px(width))
+                    .min_w(px(0.))
+                    .flex_shrink_0()
+                    .overflow_hidden()
+            })
             .on_click(cx.listener(move |view, _, window, cx| {
                 view.perform(UiAction::Sort(table, column), window, cx)
             }));
-        let text = div().truncate().child(column.label());
+        let text = div().min_w(px(0.)).truncate().child(column.label());
         if numeric {
             cell.justify_end().child(glyph).child(text)
+        } else if leading_mark {
+            // The row gap already contributes 3px; the rest of MARK_GAP matches the cell.
+            cell.child(
+                div()
+                    .size(px(MARK_SIZE))
+                    .mr(px(MARK_GAP - 3.))
+                    .flex_shrink_0(),
+            )
+            .child(text)
+            .child(glyph)
         } else {
             cell.child(text).child(glyph)
         }
