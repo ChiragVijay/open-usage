@@ -146,9 +146,9 @@ impl Dashboard {
         let theme = self.theme();
         let content = width - layout::sidebar_width(width);
         let updated = if self.refreshing {
-            "Refreshingâ€¦".to_string()
+            "Refreshing…".to_string()
         } else if self.loading {
-            "Loading historyâ€¦".to_string()
+            "Loading history…".to_string()
         } else {
             self.data()
                 .refreshed_at
@@ -666,7 +666,7 @@ impl Dashboard {
         let tokens = if has_history {
             self.number(totals.tokens.total())
         } else {
-            "â€”".into()
+            analytics::empty_value().into()
         };
         let reading = if !status.stale && status.checked_at.is_some() {
             "Live"
@@ -683,7 +683,7 @@ impl Dashboard {
             .into_iter()
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
-            .join(" Â· ");
+            .join(" · ");
         let figure = |name: &str, value: String, size: f32| {
             div()
                 .flex_1()
@@ -1201,7 +1201,7 @@ impl Dashboard {
             }
         } else {
             format!(
-                "{}â€“{} of {}",
+                "{}–{} of {}",
                 start + 1,
                 (start + page_size).min(matched),
                 grouped(matched)
@@ -1334,7 +1334,7 @@ impl Dashboard {
                 let project = if self.config.privacy {
                     "Hidden"
                 } else if record.project.is_empty() {
-                    "â€”"
+                    analytics::empty_value()
                 } else {
                     &record.project
                 };
@@ -1351,7 +1351,7 @@ impl Dashboard {
                 let text = match analytics::record_cost(record) {
                     Some((cost, true)) if !self.config.privacy => format!("~{}", self.money(cost)),
                     Some((cost, _)) => self.money(cost),
-                    None => "â€”".into(),
+                    None => analytics::empty_value().into(),
                 };
                 self.table_cell(&text, width, true, false)
                     .into_any_element()
@@ -1421,7 +1421,7 @@ impl Dashboard {
                         .text_center()
                         .text_size(px(12.))
                         .text_color(rgb(theme.faint))
-                        .child("â€¦"),
+                        .child("…"),
                 }),
             )
             .child(self.page_step(
@@ -1507,7 +1507,7 @@ impl Dashboard {
                             .child(
                                 caption(
                                     format!(
-                                        "{} Â· {} Â· {note}",
+                                        "{} · {} · {note}",
                                         record.provider.name(),
                                         record
                                             .timestamp
@@ -1756,7 +1756,7 @@ impl Dashboard {
         if parts.is_empty() {
             None
         } else {
-            Some(parts.join(" Â· "))
+            Some(parts.join(" · "))
         }
     }
     fn allowance_label(&self, status: &ProviderStatus) -> Option<String> {
@@ -2084,7 +2084,7 @@ impl Dashboard {
                     .items_center()
                     .child(caption(
                         if self.refreshing {
-                            "Refreshingâ€¦".into()
+                            "Refreshing…".into()
                         } else {
                             self.data()
                                 .refreshed_at
@@ -2174,15 +2174,15 @@ fn path_key(path: &std::path::Path) -> String {
 fn reported_error(detail: &str) -> bool {
     const KNOWN: &[&str] = &[
         "Paused in Connections",
-        "Account history Â· across your machines",
+        "Account history · across your machines",
         "Local history + live account limits",
         "Live account limits",
         "Cached Cursor account history",
-        "Detected on this device Â· no local usage yet",
+        "Detected on this device · no local usage yet",
         "Import a usage CSV or enable account checks",
         "Connect a source to see usage",
     ];
-    if detail.is_empty() || KNOWN.contains(&detail) || detail.ends_with("history files Â· local") {
+    if detail.is_empty() || KNOWN.contains(&detail) || detail.ends_with("history files · local") {
         return false;
     }
     !(detail.starts_with("Use ") && detail.contains("to create local history"))
@@ -2269,5 +2269,21 @@ fn reset_text(at: Option<chrono::DateTime<Utc>>) -> String {
             "Resets {}",
             at.with_timezone(&Local).format("%b %-d, %H:%M")
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reported_error;
+
+    #[test]
+    fn status_lines_with_middle_dots_are_not_errors() {
+        assert!(!reported_error("Account history · across your machines"));
+        assert!(!reported_error(
+            "Detected on this device · no local usage yet"
+        ));
+        assert!(!reported_error("3 history files · local"));
+        assert!(reported_error("Sign in expired"));
+        assert!(!reported_error(""));
     }
 }

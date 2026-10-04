@@ -516,7 +516,7 @@ impl Dashboard {
         totals
             .spend()
             .map(|cost| self.money(cost))
-            .unwrap_or_else(|| "—".into())
+            .unwrap_or_else(|| analytics::empty_value().into())
     }
     fn cost_caption(&self, totals: &analytics::Totals) -> String {
         if totals.events == 0 {
@@ -548,7 +548,7 @@ impl Dashboard {
         match analytics::record_cost(record) {
             Some((cost, false)) => (self.money(cost), "Reported"),
             Some((cost, true)) => (self.money(cost), "Estimated · API rate"),
-            None => ("—".into(), "No public rate"),
+            None => (analytics::empty_value().into(), "No public rate"),
         }
     }
     /// Uses the cached figures for today; runs again whenever they are recomputed.

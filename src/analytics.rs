@@ -418,3 +418,40 @@ pub fn compact(value: u64) -> String {
         value.to_string()
     }
 }
+
+/// Shown for a missing count, cost, project, or other empty reading.
+/// A hyphen stays readable on macOS and Windows. An em dash or other
+/// Unicode blank is easy to mis-decode and then draw as garbage.
+pub fn empty_value() -> &'static str {
+    "-"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::empty_value;
+
+    #[test]
+    fn empty_value_is_a_plain_hyphen() {
+        let text = empty_value();
+        assert_eq!(text, "-");
+        assert!(text.is_ascii());
+        assert_eq!(text.as_bytes(), b"-");
+        for piece in [
+            "\u{2014}",
+            "\u{2013}",
+            "\u{2026}",
+            "\u{2022}",
+            "\u{00b7}",
+            "\u{00a0}",
+            "\u{00c3}",
+            "\u{00c2}",
+            "\u{00e2}\u{20ac}",
+            "\u{00e2}\u{20ac}\u{2122}",
+        ] {
+            assert!(
+                !text.contains(piece),
+                "empty value must not contain {piece:?}"
+            );
+        }
+    }
+}

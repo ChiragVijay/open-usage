@@ -8,7 +8,7 @@ A native Rust + GPUI app for ChatGPT, Claude Code, Cursor, Kiro, Antigravity, an
 
 ## Accounting
 
-A provider-reported dollar amount is used when the account sends one. ChatGPT session logs store tokens and no price, so those rows use public per-token API rates (input, output, cache read, and cache write) from LiteLLM's model table, the same source t3code prices against. The table is cached on this device and downloaded again once a day. That figure is an API-equivalent estimate, not a subscription invoice. A model with no public rate stays **—**. Reported zero remains $0.
+A provider-reported dollar amount is used when the account sends one. ChatGPT session logs store tokens and no price, so those rows use public per-token API rates (input, output, cache read, and cache write) from LiteLLM's model table, the same source t3code prices against. The table is cached on this device and downloaded again once a day. That figure is an API-equivalent estimate, not a subscription invoice. A model with no public rate stays **-**. Reported zero remains $0.
 
 - Cursor dashboard history/CSV supplies reported usage cost. Claude models used through Cursor belong to the **Cursor account**. They do not imply a Claude subscription.
 - ChatGPT local history supplies tokens. Its account endpoint supplies allowances and reset times. Cost is the public API rate for the recorded model.

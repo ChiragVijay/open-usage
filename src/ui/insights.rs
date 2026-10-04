@@ -201,14 +201,14 @@ impl Dashboard {
             if self.config.privacy {
                 "••••".to_string()
             } else if tokens == 0 {
-                "—".into()
+                analytics::empty_value().into()
             } else {
                 format!("{:.0}%", part as f64 / tokens as f64 * 100.)
             }
         };
         let per = |count: f64| match totals.spend() {
             Some(cost) if count > 0. => self.money(cost / count),
-            _ => "—".into(),
+            _ => analytics::empty_value().into(),
         };
         let tiles = [
             ("Cache read", share(totals.tokens.cache_read)),
@@ -322,10 +322,10 @@ impl Dashboard {
             })
             .child(body)
     }
-    /// Reported cost, `~` for an API-rate estimate, `—` when unpriced.
+    /// Reported cost, `~` for an API-rate estimate, `-` when unpriced.
     pub(super) fn cost_text(&self, totals: &Totals) -> String {
         match totals.spend() {
-            None => "—".into(),
+            None => analytics::empty_value().into(),
             Some(cost) if totals.reported_rows == 0 && !self.config.privacy => {
                 format!("~{}", self.money(cost))
             }
