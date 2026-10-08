@@ -4404,6 +4404,8 @@ dependencies = [
  "dirs 6.0.0",
  "gpui",
  "gpui-component",
+ "objc2",
+ "objc2-app-kit",
  "open",
  "raw-window-handle",
  "reqwest",

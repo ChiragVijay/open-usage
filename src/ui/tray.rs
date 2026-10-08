@@ -12,7 +12,7 @@ pub struct Tray {
 }
 pub fn create() -> anyhow::Result<Tray> {
     let menu = Menu::new();
-    let overview = MenuItem::new("Open accounts", true, None);
+    let overview = MenuItem::new("Open dashboard", true, None);
     let compact = MenuItem::new("Quick view", true, None);
     let refresh = MenuItem::new("Refresh usage", true, None);
     let quit = MenuItem::new("Quit Open Usage", true, None);
@@ -42,7 +42,8 @@ pub fn create() -> anyhow::Result<Tray> {
         .with_icon(Icon::from_rgba(pixels, 32, 32)?)
         .with_tooltip("Open Usage")
         .with_menu(Box::new(menu))
-        .with_menu_on_left_click(false)
+        .with_icon_as_template(cfg!(target_os = "macos"))
+        .with_menu_on_left_click(cfg!(target_os = "macos"))
         .build()?;
     Ok(Tray {
         icon,

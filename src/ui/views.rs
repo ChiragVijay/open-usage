@@ -2123,7 +2123,11 @@ impl Dashboard {
                         self.tray_error
                             .as_deref()
                             .unwrap_or(if self.tray.is_some() {
-                                "Closing the window keeps tracking active"
+                                if cfg!(target_os = "macos") {
+                                    "Closing hides to the menu bar"
+                                } else {
+                                    "Closing hides to the system tray"
+                                }
                             } else {
                                 "Closing the window quits the app"
                             }),
