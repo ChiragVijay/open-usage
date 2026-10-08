@@ -1,4 +1,4 @@
-use gpui::{Div, FontWeight, SharedString, Svg, div, prelude::*, px, rgb};
+use gpui::{Div, FontWeight, SharedString, Svg, div, prelude::*, px, relative, rgb};
 use open_usage::model::Provider;
 
 #[derive(Clone, Copy)]
@@ -53,14 +53,53 @@ impl Theme {
         }
     }
 }
+/// One type scale. Each step is about 1.15 to 1.25 times the last, then two
+/// figure sizes for the summary band. A component uses a step and does not
+/// invent a size between them.
+pub const TYPE_CAPTION: f32 = 12.;
+pub const TYPE_BODY: f32 = 14.;
+pub const TYPE_TITLE: f32 = 16.;
+pub const TYPE_DISPLAY: f32 = 20.;
+pub const TYPE_FIGURE: f32 = 24.;
+pub const TYPE_LEAD: f32 = 32.;
+/// Space on a 4px grid. A parent sets the gap; a child does not carry a margin
+/// of its own. Related items use a smaller step than the groups around them.
+pub const SPACE_2XS: f32 = 4.;
+pub const SPACE_XS: f32 = 8.;
+pub const SPACE_S: f32 = 12.;
+pub const SPACE_M: f32 = 16.;
+pub const SPACE_L: f32 = 24.;
+pub const SPACE_XL: f32 = 32.;
+/// Icon beside caption-sized chrome. Controls and body rows use the title step
+/// so a 16px glyph stays clear next to 14px text, and the icon does not shrink.
+pub const ICON_CAPTION: f32 = TYPE_CAPTION;
+pub const ICON_BODY: f32 = TYPE_TITLE;
+/// Secondary text button. The Accounts heading row is this tall, so the
+/// control matches it instead of spilling out of the reserved band.
+pub const TEXT_ACTION_HEIGHT: f32 = 20.;
 /// Spacing, radius and control sizes shared by every page.
 pub const RADIUS: f32 = 6.;
 pub const PANEL_RADIUS: f32 = 10.;
-pub const CONTROL_HEIGHT: f32 = 30.;
+pub const CONTROL_HEIGHT: f32 = SPACE_XL;
+/// Gap under a chart heading, and the legend row reserved beneath the chart.
+/// `chart_block_height` is the panel minus padding, the heading, this gap and the legend.
+pub const CHART_GAP: f32 = SPACE_XS;
+pub const LEGEND_BLOCK: f32 = 28.;
 /// Provider dot, and the gap before the name beside it. Column headers that
 /// sit over a dotted cell reserve the same space.
 pub const MARK_SIZE: f32 = 7.;
 pub const MARK_GAP: f32 = 6.;
+/// Live-status pip. Smaller than a provider dot so it reads as state, not identity.
+pub const STATUS_PIP: f32 = 6.;
+
+/// Height left for a chart, including its own axis, inside a panel of `panel_height`.
+pub fn chart_block_height(panel_height: f32, legend: bool) -> f32 {
+    panel_height
+        - SPACE_M * 2.
+        - CONTROL_HEIGHT
+        - CHART_GAP
+        - if legend { LEGEND_BLOCK } else { 0. }
+}
 /// Series colors from Notion's tag palette, so charts stay distinct without shouting.
 pub fn color(provider: Provider, dark: bool) -> u32 {
     match (provider, dark) {
@@ -135,7 +174,7 @@ pub fn sync_components(dark: bool, window: &mut gpui::Window, cx: &mut gpui::App
     );
     let theme = gpui_component::Theme::global_mut(cx);
     theme.font_family = body_font().into();
-    theme.font_size = px(14.);
+    theme.font_size = px(TYPE_BODY);
     theme.mono_font_family = mono_font().into();
     theme.radius = px(RADIUS);
     theme.radius_lg = px(PANEL_RADIUS);
@@ -158,19 +197,22 @@ pub fn tabular<E: Styled>(mut element: E) -> E {
 }
 pub fn label(text: impl Into<SharedString>, theme: Theme) -> Div {
     div()
-        .text_size(px(13.))
+        .text_size(px(TYPE_CAPTION))
+        .line_height(relative(1.25))
         .text_color(rgb(theme.muted))
         .child(text.into())
 }
 pub fn caption(text: impl Into<SharedString>, theme: Theme) -> Div {
     div()
-        .text_size(px(11.))
+        .text_size(px(TYPE_CAPTION))
+        .line_height(relative(1.25))
         .text_color(rgb(theme.faint))
         .child(text.into())
 }
 pub fn title(text: impl Into<SharedString>, theme: Theme) -> Div {
     div()
-        .text_size(px(14.))
+        .text_size(px(TYPE_TITLE))
+        .line_height(relative(1.25))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgb(theme.ink))
         .child(text.into())
@@ -181,7 +223,7 @@ pub fn panel(theme: Theme) -> Div {
         .border_1()
         .border_color(rgb(theme.line))
         .rounded(px(PANEL_RADIUS))
-        .p(px(16.))
+        .p(px(SPACE_M))
 }
 pub fn dot(provider: Provider, dark: bool) -> Div {
     div()
@@ -193,12 +235,14 @@ pub fn dot(provider: Provider, dark: bool) -> Div {
 pub fn icon(name: &'static str, theme: Theme) -> Svg {
     gpui::svg()
         .path(name)
-        .size(px(18.))
+        .size(px(ICON_BODY))
+        .flex_shrink_0()
         .text_color(rgb(theme.muted))
 }
 pub fn provider_mark(provider: Provider, dark: bool) -> Div {
     div()
-        .size(px(32.))
+        .size(px(SPACE_XL))
+        .flex_shrink_0()
         .rounded(px(RADIUS))
         .bg(rgb(tint(provider, dark)))
         .flex()
@@ -262,5 +306,50 @@ impl gpui::AssetSource for Assets {
     }
     fn list(&self, _path: &str) -> anyhow::Result<Vec<SharedString>> {
         Ok(vec![])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn type_steps_climb_without_a_jump() {
+        let steps = [
+            TYPE_CAPTION,
+            TYPE_BODY,
+            TYPE_TITLE,
+            TYPE_DISPLAY,
+            TYPE_FIGURE,
+            TYPE_LEAD,
+        ];
+        for pair in steps.windows(2) {
+            let ratio = pair[1] / pair[0];
+            assert!(
+                (1.1..=1.35).contains(&ratio),
+                "{:?} ratio {ratio}",
+                (pair[0], pair[1])
+            );
+        }
+    }
+
+    #[test]
+    fn space_steps_share_a_four_pixel_grid() {
+        let steps = [SPACE_2XS, SPACE_XS, SPACE_S, SPACE_M, SPACE_L, SPACE_XL];
+        for pair in steps.windows(2) {
+            assert!(pair[1] > pair[0]);
+            assert_eq!(pair[0] % 4., 0.);
+            assert_eq!(pair[1] % 4., 0.);
+        }
+        assert_eq!(CONTROL_HEIGHT, SPACE_XL);
+        assert_eq!(CHART_GAP, SPACE_XS);
+    }
+
+    #[test]
+    fn chart_plot_keeps_the_heading_and_legend() {
+        let with_legend = chart_block_height(300., true);
+        let bare = chart_block_height(300., false);
+        assert!(with_legend > 160.);
+        assert_eq!(bare - with_legend, LEGEND_BLOCK);
     }
 }

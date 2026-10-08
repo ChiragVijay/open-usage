@@ -55,15 +55,21 @@ impl Dashboard {
             .small()
             .h(px(CONTROL_HEIGHT))
             .rounded(px(RADIUS))
-            .when(text.is_empty(), |button| button.w(px(CONTROL_HEIGHT)).px(px(0.)))
+            .when(text.is_empty(), |button| {
+                button.w(px(CONTROL_HEIGHT)).px(px(0.))
+            })
             .custom(self.variant(active, cx))
             .when_some(glyph, |button, glyph| {
-                button.child(icon(glyph, theme).size(px(15.)).text_color(rgb(theme.ink)))
+                button.child(
+                    icon(glyph, theme)
+                        .size(px(ICON_BODY))
+                        .text_color(rgb(theme.ink)),
+                )
             })
             .when(!text.is_empty(), |button| {
                 button.child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(px(TYPE_CAPTION))
                         .line_height(relative(1.))
                         .text_color(rgb(theme.ink))
                         .when(active, |text| text.font_weight(FontWeight::MEDIUM))
@@ -105,13 +111,17 @@ impl Dashboard {
                 div()
                     .w(px(width - 42.))
                     .truncate()
-                    .text_size(px(12.))
+                    .text_size(px(TYPE_CAPTION))
                     .line_height(relative(1.))
                     .text_color(rgb(if active { theme.ink } else { theme.muted }))
                     .when(active, |text| text.font_weight(FontWeight::MEDIUM))
                     .child(text.into()),
             )
-            .child(icon("chevron", theme).size(px(12.)).text_color(rgb(theme.muted)))
+            .child(
+                icon("chevron", theme)
+                    .size(px(ICON_CAPTION))
+                    .text_color(rgb(theme.muted)),
+            )
     }
     /// Equal-width text tabs. The active one is marked by ink and a short rule
     /// underneath rather than a filled chip, so toolbars stay quiet.
@@ -141,7 +151,7 @@ impl Dashboard {
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
-                    .text_size(px(12.))
+                    .text_size(px(TYPE_CAPTION))
                     .when(active, |tab| {
                         tab.text_color(rgb(theme.ink))
                             .font_weight(FontWeight::SEMIBOLD)
@@ -149,8 +159,8 @@ impl Dashboard {
                                 div()
                                     .absolute()
                                     .bottom(px(2.))
-                                    .left(px(10.))
-                                    .right(px(10.))
+                                    .left(px(SPACE_XS))
+                                    .right(px(SPACE_XS))
                                     .h(px(2.))
                                     .bg(rgb(theme.ink)),
                             )
@@ -161,8 +171,7 @@ impl Dashboard {
                     })
                     .when_some(segment.tooltip, |chip, tooltip| {
                         chip.tooltip(move |window, cx| {
-                            gpui_component::tooltip::Tooltip::new(tooltip.clone())
-                                .build(window, cx)
+                            gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
                         })
                     })
                     .on_click(cx.listener(move |view, _, window, cx| {
@@ -201,18 +210,22 @@ impl Dashboard {
         let theme = self.theme();
         div()
             .id(SharedString::from(id.into()))
-            .h(px(22.))
-            .px(px(6.))
+            .h(px(TEXT_ACTION_HEIGHT))
+            .px(px(SPACE_XS))
             .rounded(px(RADIUS - 2.))
             .flex()
             .items_center()
-            .gap(px(4.))
+            .gap(px(SPACE_2XS))
             .cursor_pointer()
-            .text_size(px(12.))
+            .text_size(px(TYPE_CAPTION))
             .text_color(rgb(theme.muted))
             .hover(move |style| style.bg(rgb(theme.wash)).text_color(rgb(theme.ink)))
             .when_some(glyph, |row, glyph| {
-                row.child(icon(glyph, theme).size(px(12.)).text_color(rgb(theme.muted)))
+                row.child(
+                    icon(glyph, theme)
+                        .size(px(ICON_CAPTION))
+                        .text_color(rgb(theme.muted)),
+                )
             })
             .child(text)
             .on_click(
@@ -246,16 +259,17 @@ impl Dashboard {
         } else {
             theme.muted
         };
-        let glyph = div()
-            .w(px(12.))
-            .flex_shrink_0()
-            .when_some(arrow, |slot, descending| {
-                slot.child(
-                    icon(if descending { "sort-down" } else { "sort-up" }, theme)
-                        .size(px(12.))
-                        .text_color(rgb(theme.ink)),
-                )
-            });
+        let glyph =
+            div()
+                .w(px(ICON_CAPTION))
+                .flex_shrink_0()
+                .when_some(arrow, |slot, descending| {
+                    slot.child(
+                        icon(if descending { "sort-down" } else { "sort-up" }, theme)
+                            .size(px(ICON_CAPTION))
+                            .text_color(rgb(theme.ink)),
+                    )
+                });
         let cell = div()
             .id(SharedString::from(format!("sort-{table:?}-{column:?}")))
             .h_full()
@@ -263,7 +277,7 @@ impl Dashboard {
             .items_center()
             .gap(px(3.))
             .cursor_pointer()
-            .text_size(px(12.))
+            .text_size(px(TYPE_CAPTION))
             .font_weight(FontWeight::MEDIUM)
             .text_color(rgb(color))
             .hover(move |style| style.text_color(rgb(theme.ink)))

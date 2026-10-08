@@ -1,5 +1,7 @@
 //! Home keeps every current account visible; crowded windows use compact rows.
 
+use super::theme::{SPACE_S, SPACE_XS, TEXT_ACTION_HEIGHT};
+
 pub const HEADER_HEIGHT: f32 = 52.;
 /// Space reserved for the usage chart before accounts may scroll; dense
 /// layouts keep a smaller floor so three accounts still fit at minimum size.
@@ -44,9 +46,9 @@ impl OverviewLayout {
         let width = width - sidebar_width(width) - padding * 2.;
         let height = height - HEADER_HEIGHT - padding * 2.;
         let dense = height < 660. || width < 650.;
-        let gap = if dense { 8. } else { 12. };
+        let gap = if dense { SPACE_XS } else { SPACE_S };
         let summary_height = if dense { 64. } else { 80. };
-        let chrome = summary_height + 20. + gap * 3.;
+        let chrome = summary_height + TEXT_ACTION_HEIGHT + gap * 3.;
         let available = height - chrome;
         let card_columns = ((width + gap) / (260. + gap)).floor().max(1.) as usize;
         let card_columns = card_columns.min(accounts.max(1));
@@ -95,7 +97,7 @@ impl OverviewLayout {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{TEXT_ACTION_HEIGHT, *};
 
     #[test]
     fn all_current_accounts_fit_without_paging_or_scrolling() {
@@ -119,7 +121,7 @@ mod tests {
                 let occupied = HEADER_HEIGHT
                     + page_padding(width, height) * 2.
                     + layout.summary_height
-                    + 20.
+                    + TEXT_ACTION_HEIGHT
                     + layout.gap * 3.
                     + layout.accounts_height
                     + layout.chart_height;

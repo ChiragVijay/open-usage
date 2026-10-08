@@ -64,10 +64,7 @@ pub fn label_indices(count: usize, max_labels: usize) -> Vec<usize> {
         return vec![];
     }
     let step = count.div_ceil(max_labels.max(1)).max(1);
-    let mut indices = (0..count)
-        .rev()
-        .step_by(step)
-        .collect::<Vec<_>>();
+    let mut indices = (0..count).rev().step_by(step).collect::<Vec<_>>();
     indices.reverse();
     indices
 }
@@ -80,9 +77,7 @@ impl Dashboard {
         control: Option<AnyElement>,
         height: Option<f32>,
     ) -> Div {
-        let heading = title(name.to_owned(), self.theme())
-            .text_size(px(13.))
-            .into_any_element();
+        let heading = title(name.to_owned(), self.theme()).into_any_element();
         self.chart_panel_with(heading, control, height)
     }
     /// A chart panel whose heading is any element, e.g. a live readout.
@@ -98,14 +93,14 @@ impl Dashboard {
             .flex_shrink_0()
             .flex()
             .flex_col()
-            .gap(px(10.))
+            .gap(px(CHART_GAP))
             .child(
                 div()
                     .h(px(CONTROL_HEIGHT))
                     .flex_shrink_0()
                     .flex()
                     .items_center()
-                    .gap(px(8.))
+                    .gap(px(SPACE_XS))
                     .child(heading)
                     .child(div().flex_1())
                     .children(control),
@@ -118,15 +113,26 @@ impl Dashboard {
             .flex()
             .flex_wrap()
             .items_center()
-            .gap_x(px(14.))
-            .gap_y(px(4.))
+            .gap_x(px(SPACE_M))
+            .gap_y(px(SPACE_2XS))
             .children(items.into_iter().map(|(color, name)| {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(6.))
-                    .child(div().size(px(8.)).rounded(px(2.)).bg(rgb(color)))
-                    .child(div().text_size(px(11.)).text_color(rgb(theme.muted)).child(name))
+                    .gap(px(SPACE_2XS))
+                    .child(
+                        div()
+                            .size(px(SPACE_XS))
+                            .flex_shrink_0()
+                            .rounded(px(2.))
+                            .bg(rgb(color)),
+                    )
+                    .child(
+                        tabular(div())
+                            .text_size(px(TYPE_CAPTION))
+                            .text_color(rgb(theme.muted))
+                            .child(name),
+                    )
             }))
     }
     fn empty_plot(&self, text: &str) -> Div {
@@ -191,13 +197,13 @@ impl Dashboard {
             .relative()
             .children((0..=ticks).map(|tick| {
                 let y = plot - plot * tick as f32 / ticks as f32;
-                div()
+                tabular(div())
                     .absolute()
-                    .right(px(8.))
-                    .top(px(y - 7.))
-                    .h(px(14.))
-                    .text_size(px(10.))
-                    .line_height(px(14.))
+                    .right(px(SPACE_XS))
+                    .top(px(y - TYPE_CAPTION / 2.))
+                    .h(px(TYPE_CAPTION))
+                    .text_size(px(TYPE_CAPTION))
+                    .line_height(px(TYPE_CAPTION))
                     .text_color(rgb(theme.faint))
                     .child(format(step * tick as f64))
             }));
@@ -249,8 +255,7 @@ impl Dashboard {
                     // updates on the next frame, a tooltip only after a delay.
                     .when(!tooltip.is_empty(), |slot| {
                         slot.tooltip(move |window, cx| {
-                            gpui_component::tooltip::Tooltip::new(tooltip.clone())
-                                .build(window, cx)
+                            gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
                         })
                     })
                     .child(
@@ -279,14 +284,15 @@ impl Dashboard {
             .flex_shrink_0()
             .relative()
             .children(label_indices(count, max_labels).into_iter().map(|index| {
-                div()
+                tabular(div())
                     .absolute()
                     .top(px(3.))
                     .left(relative((index as f32 + 0.5) / count as f32))
                     .ml(px(-32.))
                     .w(px(64.))
                     .text_center()
-                    .text_size(px(10.))
+                    .text_size(px(TYPE_CAPTION))
+                    .line_height(px(TYPE_CAPTION))
                     .text_color(rgb(theme.faint))
                     .child(labels.get(index).cloned().unwrap_or_default())
             }));
@@ -341,20 +347,17 @@ impl Dashboard {
         let names = div()
             .w(px(label_width))
             .flex_shrink_0()
-            .pr(px(10.))
+            .pr(px(SPACE_S))
             .children(rows.iter().map(|row| {
-                div()
-                    .h(px(ROW))
-                    .flex()
-                    .items_center()
-                    .child(
-                        div()
-                            .w_full()
-                            .truncate()
-                            .text_size(px(12.))
-                            .text_color(rgb(theme.ink))
-                            .child(row.0.clone()),
-                    )
+                div().h(px(ROW)).flex().items_center().child(
+                    div()
+                        .w_full()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(TYPE_CAPTION))
+                        .text_color(rgb(theme.ink))
+                        .child(row.0.clone()),
+                )
             }));
         let plot = div()
             .flex_1()
@@ -381,7 +384,7 @@ impl Dashboard {
                         .bg(rgb(row.2)),
                 )
             }));
-        let values = div()
+        let values = tabular(div())
             .w(px(VALUE))
             .flex_shrink_0()
             .children(rows.iter().map(|row| {
@@ -390,7 +393,7 @@ impl Dashboard {
                     .flex()
                     .items_center()
                     .justify_end()
-                    .text_size(px(12.))
+                    .text_size(px(TYPE_CAPTION))
                     .text_color(rgb(theme.muted))
                     .child(row.3.clone())
             }));
@@ -398,28 +401,24 @@ impl Dashboard {
             .h(px(X_AXIS_HEIGHT))
             .flex()
             .child(div().w(px(label_width)).flex_shrink_0())
-            .child(
-                div()
-                    .flex_1()
-                    .relative()
-                    .children((0..=ticks).map(|tick| {
-                        let value = step * tick as f64;
-                        div()
-                            .absolute()
-                            .top(px(3.))
-                            .left(relative(tick as f32 / ticks as f32))
-                            .ml(px(-28.))
-                            .w(px(56.))
-                            .text_center()
-                            .text_size(px(10.))
-                            .text_color(rgb(theme.faint))
-                            .child(if money {
-                                short_money(value, step)
-                            } else {
-                                short_number(value)
-                            })
-                    })),
-            )
+            .child(div().flex_1().relative().children((0..=ticks).map(|tick| {
+                let value = step * tick as f64;
+                tabular(div())
+                    .absolute()
+                    .top(px(3.))
+                    .left(relative(tick as f32 / ticks as f32))
+                    .ml(px(-28.))
+                    .w(px(56.))
+                    .text_center()
+                    .text_size(px(TYPE_CAPTION))
+                    .line_height(px(TYPE_CAPTION))
+                    .text_color(rgb(theme.faint))
+                    .child(if money {
+                        short_money(value, step)
+                    } else {
+                        short_number(value)
+                    })
+            })))
             .child(div().w(px(VALUE)).flex_shrink_0());
         div()
             .flex()
@@ -457,7 +456,8 @@ impl Dashboard {
                             .flex_shrink_0()
                             .flex()
                             .items_center()
-                            .text_size(px(10.))
+                            .text_size(px(TYPE_CAPTION))
+                            .line_height(px(TYPE_CAPTION))
                             .text_color(rgb(theme.faint))
                             .child(DAYS[day]),
                     )
@@ -491,20 +491,24 @@ impl Dashboard {
                     .h(px(X_AXIS_HEIGHT))
                     .flex()
                     .child(div().w(px(38.)).flex_shrink_0())
-                    .child(div().flex_1().relative().children([0, 6, 12, 18, 23].map(
-                        |hour| {
-                            div()
-                                .absolute()
-                                .top(px(3.))
-                                .left(relative((hour as f32 + 0.5) / 24.))
-                                .ml(px(-16.))
-                                .w(px(32.))
-                                .text_center()
-                                .text_size(px(10.))
-                                .text_color(rgb(theme.faint))
-                                .child(format!("{hour:02}"))
-                        },
-                    ))),
+                    .child(
+                        div()
+                            .flex_1()
+                            .relative()
+                            .children([0, 6, 12, 18, 23].map(|hour| {
+                                tabular(div())
+                                    .absolute()
+                                    .top(px(3.))
+                                    .left(relative((hour as f32 + 0.5) / 24.))
+                                    .ml(px(-16.))
+                                    .w(px(32.))
+                                    .text_center()
+                                    .text_size(px(TYPE_CAPTION))
+                                    .line_height(px(TYPE_CAPTION))
+                                    .text_color(rgb(theme.faint))
+                                    .child(format!("{hour:02}"))
+                            })),
+                    ),
             )
     }
     /// Usage over the selected period, stacked by account. Hovering a column
@@ -582,18 +586,19 @@ impl Dashboard {
         let header = div()
             .flex()
             .items_baseline()
-            .gap(px(8.))
+            .gap(px(SPACE_XS))
             .child(
                 tabular(div())
                     .font_family(display_font())
-                    .text_size(px(18.))
+                    .text_size(px(TYPE_DISPLAY))
+                    .line_height(relative(1.1))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(rgb(theme.ink))
                     .child(readout),
             )
             .child(caption(context, theme));
         let legend = height >= 190.;
-        let plot = height - 32. - CONTROL_HEIGHT - 10. - if legend { 28. } else { 0. };
+        let plot = chart_block_height(height, legend);
         // Accounts with usage anywhere in the period keep their legend slot
         // while hovering, so the legend does not jump between columns.
         let listed = accounts
@@ -607,7 +612,11 @@ impl Dashboard {
             .map(|s| {
                 (
                     color(s.provider, dark),
-                    format!("{}  {}", s.provider.name(), show(per_account(s.provider.index()))),
+                    format!(
+                        "{}  {}",
+                        s.provider.name(),
+                        show(per_account(s.provider.index()))
+                    ),
                 )
             })
             .collect();

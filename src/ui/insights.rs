@@ -1,7 +1,7 @@
 use super::*;
 use charts::{Bar, Y_AXIS_WIDTH};
 use open_usage::analytics::{ProjectRow, Totals};
-use views::ROW_HEIGHT;
+use views::{COLUMN_GAP, ROW_HEIGHT, TABLE_HEADER, TABLE_PAD};
 
 impl Dashboard {
     pub(super) fn insights_view(&self, width: f32, height: f32, cx: &Context<Self>) -> Div {
@@ -25,7 +25,12 @@ impl Dashboard {
         let colors = token_colors(dark);
         const KINDS: [&str; 4] = ["Input", "Output", "Cache read", "Cache write"];
         let kinds = |tokens: &open_usage::model::Tokens| {
-            [tokens.input, tokens.output, tokens.cache_read, tokens.cache_write]
+            [
+                tokens.input,
+                tokens.output,
+                tokens.cache_read,
+                tokens.cache_write,
+            ]
         };
         let bars = insights
             .mix
@@ -56,8 +61,8 @@ impl Dashboard {
         let mix_heading = div()
             .flex()
             .items_baseline()
-            .gap(px(8.))
-            .child(title("Token mix", self.theme()).text_size(px(13.)))
+            .gap(px(SPACE_XS))
+            .child(title("Token mix", self.theme()))
             .when_some(hovered, |row, bucket| {
                 row.child(caption(
                     format!(
@@ -75,16 +80,20 @@ impl Dashboard {
             .collect();
         let mix = self
             .chart_panel_with(mix_heading.into_any_element(), None, Some(300.))
-            .child(self.column_chart(
-                "mix",
-                bars,
-                labels,
-                ((content - 32. - Y_AXIS_WIDTH) / 84.).floor().max(2.) as usize,
-                false,
-                300. - 32. - CONTROL_HEIGHT - 10. - 28.,
-                "No token usage",
-                cx,
-            ))
+            .child(
+                self.column_chart(
+                    "mix",
+                    bars,
+                    labels,
+                    ((content - SPACE_M * 2. - Y_AXIS_WIDTH) / 84.)
+                        .floor()
+                        .max(2.) as usize,
+                    false,
+                    chart_block_height(300., true),
+                    "No token usage",
+                    cx,
+                ),
+            )
             .child(
                 self.legend(
                     KINDS
@@ -169,9 +178,9 @@ impl Dashboard {
 
         let pair = |a: Div, b: Div| {
             if two {
-                div().flex().gap(px(12.)).child(a).child(b)
+                div().flex().gap(px(SPACE_S)).child(a).child(b)
             } else {
-                div().flex().flex_col().gap(px(12.)).child(a).child(b)
+                div().flex().flex_col().gap(px(SPACE_S)).child(a).child(b)
             }
         };
         div()
@@ -180,12 +189,12 @@ impl Dashboard {
             .mx_auto()
             .flex()
             .flex_col()
-            .gap(px(12.))
+            .gap(px(SPACE_S))
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(8.))
+                    .gap(px(SPACE_XS))
                     .child(self.account_select("insights", cx))
                     .child(div().flex_1()),
             )
@@ -220,9 +229,9 @@ impl Dashboard {
         div()
             .flex()
             .flex_col()
-            .gap(px(12.))
+            .gap(px(SPACE_S))
             .children(tiles.chunks(columns).map(|row| {
-                div().flex().gap(px(12.)).children(
+                div().flex().gap(px(SPACE_S)).children(
                     row.iter()
                         .map(|(name, value)| self.stat_tile(name, value.clone(), None, false)),
                 )
@@ -244,11 +253,11 @@ impl Dashboard {
             ]
         };
         let header = div()
-            .h(px(36.))
-            .px(px(16.))
+            .h(px(TABLE_HEADER))
+            .px(px(TABLE_PAD))
             .flex()
             .items_center()
-            .gap(px(12.))
+            .gap(px(COLUMN_GAP))
             .border_t_1()
             .border_b_1()
             .border_color(rgb(theme.line))
@@ -264,25 +273,29 @@ impl Dashboard {
         let body = div().children(rows.iter().take(100).enumerate().map(|(index, row)| {
             div()
                 .h(px(ROW_HEIGHT))
-                .px(px(16.))
+                .px(px(TABLE_PAD))
                 .flex()
                 .items_center()
-                .gap(px(12.))
-                .when(index > 0, |line| line.border_t_1().border_color(rgb(theme.grid)))
-                .child(self.table_cell(
-                    if self.config.privacy {
-                        "Hidden"
-                    } else if row.project.is_empty() {
-                        "Not reported"
-                    } else {
-                        &row.project
-                    },
-                    None,
-                    false,
-                    row.project.is_empty() || self.config.privacy,
+                .gap(px(COLUMN_GAP))
+                .when(index > 0, |line| {
+                    line.border_t_1().border_color(rgb(theme.grid))
+                })
+                .child(
+                    self.table_cell(
+                        if self.config.privacy {
+                            "Hidden"
+                        } else if row.project.is_empty() {
+                            "Not reported"
+                        } else {
+                            &row.project
+                        },
+                        None,
+                        false,
+                        row.project.is_empty() || self.config.privacy,
+                    )
+                    .flex_1()
+                    .min_w_0(),
                 )
-                .flex_1()
-                .min_w_0())
                 .children(numbers.iter().map(|(column, width)| {
                     let text = match column {
                         Column::Sessions => self.number(row.totals.sessions as u64),
@@ -298,12 +311,12 @@ impl Dashboard {
             .overflow_hidden()
             .child(
                 div()
-                    .h(px(48.))
-                    .px(px(16.))
+                    .h(px(SPACE_XL + SPACE_M))
+                    .px(px(TABLE_PAD))
                     .flex()
                     .items_center()
-                    .gap(px(8.))
-                    .child(title("Projects", theme).text_size(px(13.)))
+                    .gap(px(SPACE_XS))
+                    .child(title("Projects", theme))
                     .child(caption(format!("{}", rows.len()), theme))
                     .child(div().flex_1())
                     .when(!sort.is_default(), |row| {
@@ -318,7 +331,13 @@ impl Dashboard {
             )
             .child(header)
             .when(rows.is_empty(), |panel| {
-                panel.child(div().p(px(24.)).child(caption("No usage in this period", theme)))
+                panel.child(
+                    div()
+                        .py(px(SPACE_L))
+                        .flex()
+                        .justify_center()
+                        .child(caption("No usage in this period", theme)),
+                )
             })
             .child(body)
     }
