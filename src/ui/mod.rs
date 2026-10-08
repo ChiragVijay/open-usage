@@ -196,7 +196,7 @@ impl Dashboard {
                 .update(cx, |view, _| view.tray.is_some())
                 .unwrap_or(false)
             {
-                window.minimize_window();
+                window::hide(window, cx);
                 false
             } else {
                 cx.quit();
@@ -373,6 +373,9 @@ impl Dashboard {
             match tray::create() {
                 Ok(tray) => {
                     self.tray = Some(tray);
+                    window::configure_tray_app();
+                    #[cfg(target_os = "macos")]
+                    window::show(window, cx);
                     self.update_tray();
                 }
                 Err(error) => {
@@ -467,26 +470,26 @@ impl Dashboard {
                         return;
                     }
                     if show_window {
-                        window.activate_window();
-                        cx.activate(true);
+                        window::show(window, cx);
                     }
                 }
             }
         }
         while let Ok(event) = tray_icon::TrayIconEvent::receiver().try_recv() {
-            if matches!(
-                event,
-                tray_icon::TrayIconEvent::Click {
-                    button: tray_icon::MouseButton::Left,
-                    button_state: tray_icon::MouseButtonState::Up,
-                    ..
-                }
-            ) {
+            if !cfg!(target_os = "macos")
+                && matches!(
+                    event,
+                    tray_icon::TrayIconEvent::Click {
+                        button: tray_icon::MouseButton::Left,
+                        button_state: tray_icon::MouseButtonState::Up,
+                        ..
+                    }
+                )
+            {
                 self.compact = true;
                 self.resize_window(window, size(px(440.), px(700.)));
                 window.focus(&self.focus);
-                window.activate_window();
-                cx.activate(true);
+                window::show(window, cx);
                 cx.notify();
             }
         }
