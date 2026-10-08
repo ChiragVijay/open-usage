@@ -10,6 +10,7 @@ mod views;
 mod window;
 
 use chrono::Utc;
+use controls::Segment;
 use gpui::{div, prelude::*, px, rgb, *};
 use gpui_component::input::{InputEvent, InputState};
 use open_usage::{
@@ -27,7 +28,6 @@ use std::{
     time::{Duration, Instant},
 };
 use table::{Column, CostFilter, Sort, Table};
-use controls::Segment;
 use theme::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -725,7 +725,9 @@ impl Dashboard {
                             })
                             .await;
                         let _ = view.update(cx, |view, cx| match result {
-                            Ok(count) => view.message(format!("Exported {count} usage records"), cx),
+                            Ok(count) => {
+                                view.message(format!("Exported {count} usage records"), cx)
+                            }
                             Err(error) => view.message(error.to_string(), cx),
                         });
                     })
@@ -799,7 +801,10 @@ impl Dashboard {
                                 view.config.cursor_imports = vec![path];
                                 view.save(cx);
                                 view.refresh(cx);
-                                view.message(format!("Imported {} Cursor events", records.len()), cx);
+                                view.message(
+                                    format!("Imported {} Cursor events", records.len()),
+                                    cx,
+                                );
                             }
                             Err(error) => view.message(error.to_string(), cx),
                         });
@@ -933,7 +938,7 @@ impl Render for Dashboard {
                         .min_w_0()
                         .flex()
                         .flex_col()
-                        .child(self.header(width, cx))
+                        .child(self.header(width, height, cx))
                         .child({
                             let pinned =
                                 matches!(self.page, Page::Overview | Page::Activity | Page::Models);
@@ -952,7 +957,7 @@ impl Render for Dashboard {
                 )
                 .into_any_element()
         };
-        tabular(div())
+        div()
             .id("root")
             .track_focus(&self.focus)
             .size_full()
@@ -960,7 +965,7 @@ impl Render for Dashboard {
             .bg(rgb(theme.bg))
             .text_color(rgb(theme.ink))
             .font_family(body_font())
-            .text_size(px(14.))
+            .text_size(px(TYPE_BODY))
             .line_height(relative(1.4))
             .on_mouse_down(
                 MouseButton::Left,
@@ -976,15 +981,15 @@ impl Render for Dashboard {
                 root.child(
                     div()
                         .absolute()
-                        .bottom(px(20.))
-                        .right(px(20.))
+                        .bottom(px(SPACE_L))
+                        .right(px(SPACE_L))
                         .max_w(px(480.))
                         .rounded(px(PANEL_RADIUS))
                         .bg(rgb(theme.ink))
                         .text_color(rgb(theme.panel))
-                        .text_size(px(13.))
-                        .px(px(14.))
-                        .py(px(10.))
+                        .text_size(px(TYPE_BODY))
+                        .px(px(SPACE_M))
+                        .py(px(SPACE_S))
                         .shadow_lg()
                         .child(message.clone()),
                 )
