@@ -1,16 +1,15 @@
 use crate::{
-    config::data_dir,
+    config::private_data_dir,
     model::{Snapshot, UsageRecord},
 };
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
-use std::{fs, path::Path};
+use std::path::Path;
 
 pub struct Store(Connection);
 impl Store {
     pub fn open() -> Result<Self> {
-        fs::create_dir_all(data_dir())?;
-        Self::at(&data_dir().join("usage.db"))
+        Self::at(&private_data_dir()?.join("usage.db"))
     }
     pub fn at(path: &Path) -> Result<Self> {
         let connection = Connection::open(path)?;

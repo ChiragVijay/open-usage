@@ -23,6 +23,7 @@ pub(super) fn fingerprint(provider: Provider, homes: &[PathBuf]) -> Result<Optio
 }
 pub fn fetch(provider: Provider, homes: &[PathBuf], history: bool) -> Result<LiveData> {
     let client = Client::builder()
+        .https_only(true)
         .timeout(Duration::from_secs(12))
         .connect_timeout(Duration::from_secs(5))
         .redirect(reqwest::redirect::Policy::none())

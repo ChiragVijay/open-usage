@@ -25,7 +25,12 @@ impl Dashboard {
         let colors = token_colors(dark);
         const KINDS: [&str; 4] = ["Input", "Output", "Cache read", "Cache write"];
         let kinds = |tokens: &open_usage::model::Tokens| {
-            [tokens.input, tokens.output, tokens.cache_read, tokens.cache_write]
+            [
+                tokens.input,
+                tokens.output,
+                tokens.cache_read,
+                tokens.cache_write,
+            ]
         };
         let bars = insights
             .mix
@@ -268,21 +273,25 @@ impl Dashboard {
                 .flex()
                 .items_center()
                 .gap(px(12.))
-                .when(index > 0, |line| line.border_t_1().border_color(rgb(theme.grid)))
-                .child(self.table_cell(
-                    if self.config.privacy {
-                        "Hidden"
-                    } else if row.project.is_empty() {
-                        "Not reported"
-                    } else {
-                        &row.project
-                    },
-                    None,
-                    false,
-                    row.project.is_empty() || self.config.privacy,
+                .when(index > 0, |line| {
+                    line.border_t_1().border_color(rgb(theme.grid))
+                })
+                .child(
+                    self.table_cell(
+                        if self.config.privacy {
+                            "Hidden"
+                        } else if row.project.is_empty() {
+                            "Not reported"
+                        } else {
+                            &row.project
+                        },
+                        None,
+                        false,
+                        row.project.is_empty() || self.config.privacy,
+                    )
+                    .flex_1()
+                    .min_w_0(),
                 )
-                .flex_1()
-                .min_w_0())
                 .children(numbers.iter().map(|(column, width)| {
                     let text = match column {
                         Column::Sessions => self.number(row.totals.sessions as u64),
@@ -318,7 +327,11 @@ impl Dashboard {
             )
             .child(header)
             .when(rows.is_empty(), |panel| {
-                panel.child(div().p(px(24.)).child(caption("No usage in this period", theme)))
+                panel.child(
+                    div()
+                        .p(px(24.))
+                        .child(caption("No usage in this period", theme)),
+                )
             })
             .child(body)
     }

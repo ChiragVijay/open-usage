@@ -7,12 +7,12 @@ use reqwest::blocking::RequestBuilder;
 use serde_json::Value;
 #[cfg(target_os = "macos")]
 use std::time::{Duration, Instant};
-use std::{fs, path::Path};
+use std::{fs::File, path::Path};
 
 pub(super) fn read(path: &Path) -> Option<Value> {
-    fs::read(path)
+    File::open(path)
         .ok()
-        .and_then(|data| serde_json::from_slice(&data).ok())
+        .and_then(|file| crate::input::json(file, crate::input::AUTH_BYTES).ok())
 }
 pub(super) fn token(value: &Value, pointer: &str) -> Option<String> {
     value
@@ -80,8 +80,7 @@ pub(super) fn response(request: RequestBuilder, provider: Provider) -> Result<Va
             response.status().as_u16()
         );
     }
-    response
-        .json()
+    crate::input::json(response, crate::input::RESPONSE_BYTES)
         .map_err(|_| anyhow!("{} returned an unreadable usage response", provider.name()))
 }
 pub(super) fn window(

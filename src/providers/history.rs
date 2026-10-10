@@ -6,13 +6,14 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap},
     fs::File,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read},
     path::Path,
 };
 
 pub fn hash(value: &str) -> String {
     format!("{:x}", Sha256::digest(value.as_bytes()))
 }
+
 pub fn date(value: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value)
         .ok()
@@ -66,6 +67,8 @@ pub struct Parsed {
     pub skipped: usize,
 }
 
+const MAX_HISTORY_LINE_BYTES: u64 = 8 * 1024 * 1024;
+
 pub fn read_jsonl(path: &Path, provider: Provider) -> Result<Parsed> {
     let mut parsed = Parsed {
         records: vec![],
@@ -81,8 +84,25 @@ pub fn read_jsonl(path: &Path, provider: Provider) -> Result<Parsed> {
     let mut previous = Tokens::default();
     let mut previous_total: Option<u64> = None;
     let mut claude: BTreeMap<String, UsageRecord> = BTreeMap::new();
-    for line in BufReader::new(File::open(path)?).lines() {
-        let line = match line {
+    let mut reader = BufReader::new(File::open(path)?);
+    loop {
+        let mut line = Vec::new();
+        if reader
+            .by_ref()
+            .take(MAX_HISTORY_LINE_BYTES + 1)
+            .read_until(b'\n', &mut line)?
+            == 0
+        {
+            break;
+        }
+        if line.len() as u64 > MAX_HISTORY_LINE_BYTES {
+            if line.last() != Some(&b'\n') {
+                reader.skip_until(b'\n')?;
+            }
+            parsed.skipped += 1;
+            continue;
+        }
+        let line = match String::from_utf8(line) {
             Ok(line) => line,
             Err(_) => {
                 parsed.skipped += 1;
@@ -330,4 +350,32 @@ pub fn read_cursor_csv(path: &Path) -> Result<Vec<UsageRecord>> {
         });
     }
     Ok(records)
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn oversized_history_lines_are_skipped_without_losing_later_usage() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session.jsonl");
+        let mut file = File::create(&path).unwrap();
+        let block = [b'x'; 8192];
+        for _ in 0..(MAX_HISTORY_LINE_BYTES / block.len() as u64 + 1) {
+            file.write_all(&block).unwrap();
+        }
+        writeln!(file).unwrap();
+        writeln!(file, "{}", serde_json::json!({
+            "timestamp":"2026-10-10T12:00:00Z",
+            "type":"event_msg",
+            "payload":{"type":"token_count", "info":{"last_token_usage":{"input_tokens":1,"output_tokens":2}}}
+        })).unwrap();
+        drop(file);
+        let parsed = read_jsonl(&path, Provider::Codex).unwrap();
+        assert_eq!(parsed.skipped, 1);
+        assert_eq!(parsed.records.len(), 1);
+        assert_eq!(parsed.records[0].tokens.total(), 3);
+    }
 }

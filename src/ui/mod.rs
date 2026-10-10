@@ -10,6 +10,7 @@ mod views;
 mod window;
 
 use chrono::Utc;
+use controls::Segment;
 use gpui::{div, prelude::*, px, rgb, *};
 use gpui_component::input::{InputEvent, InputState};
 use open_usage::{
@@ -27,7 +28,6 @@ use std::{
     time::{Duration, Instant},
 };
 use table::{Column, CostFilter, Sort, Table};
-use controls::Segment;
 use theme::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -85,6 +85,7 @@ enum UiAction {
     Refresh,
     Export,
     Privacy,
+    Online,
     Dark,
     Compact,
     Quit,
@@ -186,7 +187,7 @@ impl Dashboard {
                 }
             });
         }
-        open_usage::pricing::start();
+        open_usage::pricing::start(config.online);
         sync_components(config.dark, window, cx);
         let focus = cx.focus_handle();
         window.focus(&focus);
@@ -725,11 +726,24 @@ impl Dashboard {
                             })
                             .await;
                         let _ = view.update(cx, |view, cx| match result {
-                            Ok(count) => view.message(format!("Exported {count} usage records"), cx),
+                            Ok(count) => {
+                                view.message(format!("Exported {count} usage records"), cx)
+                            }
                             Err(error) => view.message(error.to_string(), cx),
                         });
                     })
                     .detach();
+                }
+            }
+            UiAction::Online => {
+                self.config.online = !self.config.online;
+                self.save(cx);
+                self.refresh(cx);
+                if !self.config.online {
+                    self.message(
+                        "Network disabled for future refreshes. Current requests may finish.",
+                        cx,
+                    );
                 }
             }
             UiAction::Privacy => {
@@ -799,7 +813,10 @@ impl Dashboard {
                                 view.config.cursor_imports = vec![path];
                                 view.save(cx);
                                 view.refresh(cx);
-                                view.message(format!("Imported {} Cursor events", records.len()), cx);
+                                view.message(
+                                    format!("Imported {} Cursor events", records.len()),
+                                    cx,
+                                );
                             }
                             Err(error) => view.message(error.to_string(), cx),
                         });

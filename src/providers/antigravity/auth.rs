@@ -14,7 +14,8 @@ use rusqlite::OptionalExtension;
 use serde_json::Value;
 use std::path::PathBuf;
 
-// Installed-application OAuth identifiers published in the upstream client.
+// Public installed-app OAuth identifiers, not user credentials. Upstream source:
+// https://github.com/robinebers/openusage/blob/main/Sources/OpenUsage/Providers/Antigravity/AntigravityUsageClient.swift
 const GOOGLE_CLIENT_ID: &str =
     "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
 const GOOGLE_CLIENT_SECRET: &str = "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";
@@ -144,7 +145,12 @@ fn oauth(homes: &[PathBuf]) -> Result<Option<OAuth>> {
     for home in homes {
         let file = home.join("antigravity-oauth-token");
         if file.exists() {
-            let raw = std::fs::read_to_string(file)
+            let raw = std::fs::File::open(file)
+                .and_then(|file| {
+                    crate::input::read(file, crate::input::AUTH_BYTES)
+                        .map_err(std::io::Error::other)
+                })
+                .and_then(|bytes| String::from_utf8(bytes).map_err(std::io::Error::other))
                 .map_err(|_| anyhow::anyhow!("Antigravity CLI login could not be read"))?;
             if let Some(auth) = oauth_json(&raw) {
                 return Ok(Some(auth));

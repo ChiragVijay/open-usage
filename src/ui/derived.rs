@@ -50,7 +50,9 @@ pub struct ActivityResult {
 }
 impl ActivityResult {
     pub fn records(&self) -> impl Iterator<Item = &open_usage::model::UsageRecord> {
-        self.indices.iter().map(|&index| &self.snapshot.records[index])
+        self.indices
+            .iter()
+            .map(|&index| &self.snapshot.records[index])
     }
 }
 
@@ -80,7 +82,6 @@ impl<K: PartialEq, V> Slot<K, V> {
     pub fn value(&self) -> Option<Arc<V>> {
         self.value.clone()
     }
-
 }
 
 #[derive(Default)]
@@ -321,12 +322,7 @@ impl Dashboard {
                     .enumerate()
                     .filter(|(_, record)| {
                         job.scope.enabled[record.provider.index()]
-                            && analytics::matches(
-                                record,
-                                job.scope.period,
-                                job.scope.provider,
-                                now,
-                            )
+                            && analytics::matches(record, job.scope.period, job.scope.provider, now)
                     })
                     .inspect(|_| total += 1)
                     .filter(|(_, record)| {

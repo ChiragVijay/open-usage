@@ -43,8 +43,7 @@ pub fn fetch(client: &Client, homes: &[PathBuf]) -> Result<LiveData> {
             anyhow::anyhow!("OpenCode could not be reached. Cached values are retained.")
         })?;
     let status = result.status();
-    let body: Value = result
-        .json()
+    let body: Value = crate::input::json(result, crate::input::RESPONSE_BYTES)
         .map_err(|_| anyhow::anyhow!("OpenCode returned an unreadable usage response"))?;
     if status.as_u16() == 403
         && body.pointer("/error/type").and_then(Value::as_str) == Some("EntitlementError")

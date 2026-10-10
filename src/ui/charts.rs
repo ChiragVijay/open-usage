@@ -64,10 +64,7 @@ pub fn label_indices(count: usize, max_labels: usize) -> Vec<usize> {
         return vec![];
     }
     let step = count.div_ceil(max_labels.max(1)).max(1);
-    let mut indices = (0..count)
-        .rev()
-        .step_by(step)
-        .collect::<Vec<_>>();
+    let mut indices = (0..count).rev().step_by(step).collect::<Vec<_>>();
     indices.reverse();
     indices
 }
@@ -126,7 +123,12 @@ impl Dashboard {
                     .items_center()
                     .gap(px(6.))
                     .child(div().size(px(8.)).rounded(px(2.)).bg(rgb(color)))
-                    .child(div().text_size(px(11.)).text_color(rgb(theme.muted)).child(name))
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(rgb(theme.muted))
+                            .child(name),
+                    )
             }))
     }
     fn empty_plot(&self, text: &str) -> Div {
@@ -249,8 +251,7 @@ impl Dashboard {
                     // updates on the next frame, a tooltip only after a delay.
                     .when(!tooltip.is_empty(), |slot| {
                         slot.tooltip(move |window, cx| {
-                            gpui_component::tooltip::Tooltip::new(tooltip.clone())
-                                .build(window, cx)
+                            gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
                         })
                     })
                     .child(
@@ -343,18 +344,14 @@ impl Dashboard {
             .flex_shrink_0()
             .pr(px(10.))
             .children(rows.iter().map(|row| {
-                div()
-                    .h(px(ROW))
-                    .flex()
-                    .items_center()
-                    .child(
-                        div()
-                            .w_full()
-                            .truncate()
-                            .text_size(px(12.))
-                            .text_color(rgb(theme.ink))
-                            .child(row.0.clone()),
-                    )
+                div().h(px(ROW)).flex().items_center().child(
+                    div()
+                        .w_full()
+                        .truncate()
+                        .text_size(px(12.))
+                        .text_color(rgb(theme.ink))
+                        .child(row.0.clone()),
+                )
             }));
         let plot = div()
             .flex_1()
@@ -398,28 +395,23 @@ impl Dashboard {
             .h(px(X_AXIS_HEIGHT))
             .flex()
             .child(div().w(px(label_width)).flex_shrink_0())
-            .child(
+            .child(div().flex_1().relative().children((0..=ticks).map(|tick| {
+                let value = step * tick as f64;
                 div()
-                    .flex_1()
-                    .relative()
-                    .children((0..=ticks).map(|tick| {
-                        let value = step * tick as f64;
-                        div()
-                            .absolute()
-                            .top(px(3.))
-                            .left(relative(tick as f32 / ticks as f32))
-                            .ml(px(-28.))
-                            .w(px(56.))
-                            .text_center()
-                            .text_size(px(10.))
-                            .text_color(rgb(theme.faint))
-                            .child(if money {
-                                short_money(value, step)
-                            } else {
-                                short_number(value)
-                            })
-                    })),
-            )
+                    .absolute()
+                    .top(px(3.))
+                    .left(relative(tick as f32 / ticks as f32))
+                    .ml(px(-28.))
+                    .w(px(56.))
+                    .text_center()
+                    .text_size(px(10.))
+                    .text_color(rgb(theme.faint))
+                    .child(if money {
+                        short_money(value, step)
+                    } else {
+                        short_number(value)
+                    })
+            })))
             .child(div().w(px(VALUE)).flex_shrink_0());
         div()
             .flex()
@@ -491,20 +483,23 @@ impl Dashboard {
                     .h(px(X_AXIS_HEIGHT))
                     .flex()
                     .child(div().w(px(38.)).flex_shrink_0())
-                    .child(div().flex_1().relative().children([0, 6, 12, 18, 23].map(
-                        |hour| {
-                            div()
-                                .absolute()
-                                .top(px(3.))
-                                .left(relative((hour as f32 + 0.5) / 24.))
-                                .ml(px(-16.))
-                                .w(px(32.))
-                                .text_center()
-                                .text_size(px(10.))
-                                .text_color(rgb(theme.faint))
-                                .child(format!("{hour:02}"))
-                        },
-                    ))),
+                    .child(
+                        div()
+                            .flex_1()
+                            .relative()
+                            .children([0, 6, 12, 18, 23].map(|hour| {
+                                div()
+                                    .absolute()
+                                    .top(px(3.))
+                                    .left(relative((hour as f32 + 0.5) / 24.))
+                                    .ml(px(-16.))
+                                    .w(px(32.))
+                                    .text_center()
+                                    .text_size(px(10.))
+                                    .text_color(rgb(theme.faint))
+                                    .child(format!("{hour:02}"))
+                            })),
+                    ),
             )
     }
     /// Usage over the selected period, stacked by account. Hovering a column
@@ -607,7 +602,11 @@ impl Dashboard {
             .map(|s| {
                 (
                     color(s.provider, dark),
-                    format!("{}  {}", s.provider.name(), show(per_account(s.provider.index()))),
+                    format!(
+                        "{}  {}",
+                        s.provider.name(),
+                        show(per_account(s.provider.index()))
+                    ),
                 )
             })
             .collect();

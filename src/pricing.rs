@@ -5,7 +5,10 @@
 //! provider-reported cost always wins. The result is an API-equivalent estimate,
 //! not a subscription invoice.
 
-use crate::{config::data_dir, model::UsageRecord};
+use crate::{
+    config::{data_dir, private_data_dir},
+    model::UsageRecord,
+};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -55,16 +58,16 @@ fn fetch_lock() -> &'static Mutex<()> {
     FETCH.get_or_init(|| Mutex::new(()))
 }
 
-/// Loads cached rates, then downloads a new table when the saved copy is older than a day.
-pub fn start() {
-    std::thread::spawn(|| {
-        let _ = refresh_once();
+/// Loads cached rates; downloads stale or missing rates only with network access enabled.
+pub fn start(online: bool) {
+    std::thread::spawn(move || {
+        let _ = refresh_once(online);
     });
 }
 
 /// Loads rates before returning. Used by the CLI.
-pub fn prepare() {
-    let _ = refresh_once();
+pub fn prepare(online: bool) {
+    let _ = refresh_once(online);
 }
 
 pub fn take_updated() -> bool {
@@ -95,16 +98,20 @@ pub fn estimate(record: &UsageRecord) -> Option<f64> {
     )
 }
 
-fn refresh_once() -> Result<()> {
+fn refresh_once(online: bool) -> Result<()> {
     let _guard = fetch_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     if rates_are_fresh() {
         return Ok(());
     }
-    if let Some((fetched_at, document)) = read_cache(true).ok().flatten() {
+    if let Some((fetched_at, document)) = read_cache(online).ok().flatten() {
         install(parse_rate_table(&document));
         remember(fetched_at);
+        return Ok(());
+    }
+    if !online {
+        mark(RateState::Unavailable);
         return Ok(());
     }
     match fetch_document() {
@@ -157,8 +164,8 @@ fn mark(state: RateState) {
     UPDATED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
-fn cache_path() -> std::path::PathBuf {
-    data_dir().join("usage-model-rates.json")
+fn cache_path() -> Result<std::path::PathBuf> {
+    Ok(data_dir()?.join("usage-model-rates.json"))
 }
 
 fn now_ms() -> i64 {
@@ -169,11 +176,14 @@ fn now_ms() -> i64 {
 }
 
 fn read_cache(fresh_only: bool) -> Result<Option<(i64, Value)>> {
-    let path = cache_path();
+    let path = cache_path()?;
     if !path.exists() {
         return Ok(None);
     }
-    let cache: RatesCache = serde_json::from_slice(&fs::read(&path)?)?;
+    let cache: RatesCache = serde_json::from_slice(&crate::input::read(
+        fs::File::open(&path)?,
+        crate::input::PRICE_BYTES * 2,
+    )?)?;
     if fresh_only && now_ms().saturating_sub(cache.fetched_at_ms) > FRESH_FOR.as_millis() as i64 {
         return Ok(None);
     }
@@ -181,29 +191,30 @@ fn read_cache(fresh_only: bool) -> Result<Option<(i64, Value)>> {
 }
 
 fn write_cache(document: &Value) -> Result<i64> {
-    fs::create_dir_all(data_dir())?;
+    let path = private_data_dir()?.join("usage-model-rates.json");
     let fetched_at = now_ms();
     let cache = RatesCache {
         fetched_at_ms: fetched_at,
         document: document.clone(),
     };
-    fs::write(cache_path(), serde_json::to_vec(&cache)?)?;
+    crate::storage::atomic_write(&path, &serde_json::to_vec(&cache)?)?;
     Ok(fetched_at)
 }
 
 fn fetch_document() -> Result<Value> {
     let client = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .https_only(true)
         .timeout(Duration::from_secs(120))
         .connect_timeout(Duration::from_secs(10))
         .build()?;
-    let document = client
+    let response = client
         .get(RATES_URL)
         .header("Accept", "application/json")
         .send()
         .context("model rates could not be downloaded")?
-        .error_for_status()?
-        .json::<Value>()?;
-    Ok(document)
+        .error_for_status()?;
+    crate::input::json(response, crate::input::PRICE_BYTES)
 }
 
 fn parse_rate_table(document: &Value) -> HashMap<String, ModelRate> {

@@ -193,8 +193,16 @@ impl Dashboard {
             ))
             .child(self.icon_button(
                 "header-theme",
-                if self.config.dark { "theme-light" } else { "theme" },
-                if self.config.dark { "Switch to light" } else { "Switch to dark" },
+                if self.config.dark {
+                    "theme-light"
+                } else {
+                    "theme"
+                },
+                if self.config.dark {
+                    "Switch to light"
+                } else {
+                    "Switch to dark"
+                },
                 UiAction::Dark,
                 cx,
             ))
@@ -282,7 +290,9 @@ impl Dashboard {
                 .flex_col()
                 .justify_end()
                 .gap(px(2.))
-                .when(lead, |figure| figure.w(relative(0.36)).flex_shrink_0().pr(px(16.)))
+                .when(lead, |figure| {
+                    figure.w(relative(0.36)).flex_shrink_0().pr(px(16.))
+                })
                 .when(!lead, |figure| {
                     figure
                         .flex_1()
@@ -344,7 +354,10 @@ impl Dashboard {
         // stays on the left, so the number never sits under the heading.
         div()
             .when_some(width, |cell, width| {
-                cell.w(px(width)).min_w(px(0.)).flex_shrink_0().overflow_hidden()
+                cell.w(px(width))
+                    .min_w(px(0.))
+                    .flex_shrink_0()
+                    .overflow_hidden()
             })
             .flex()
             .items_center()
@@ -413,10 +426,18 @@ impl Dashboard {
             .flex()
             .items_center()
             .gap(px(COLUMN_GAP))
-            .when(index > 0, |row| row.border_t_1().border_color(rgb(theme.grid)))
+            .when(index > 0, |row| {
+                row.border_t_1().border_color(rgb(theme.grid))
+            })
     }
     /// Count on the left, then "Reset sort" when the order was changed.
-    fn table_footer(&self, table: Table, count: String, estimates: bool, cx: &Context<Self>) -> Div {
+    fn table_footer(
+        &self,
+        table: Table,
+        count: String,
+        estimates: bool,
+        cx: &Context<Self>,
+    ) -> Div {
         let theme = self.theme();
         div()
             .h(px(TABLE_FOOTER))
@@ -558,9 +579,8 @@ impl Dashboard {
                     .children(extras),
             )
         } else {
-            body.child(div().flex().child(search)).child(
-                controls.child(div().flex_1()).children(extras),
-            )
+            body.child(div().flex().child(search))
+                .child(controls.child(div().flex_1()).children(extras))
         }
     }
     /// Activity search, sized and colored like the filters beside it.
@@ -605,11 +625,7 @@ impl Dashboard {
                 .max()
                 .unwrap_or(0),
         );
-        let body = div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .gap(px(layout.gap));
+        let body = div().size_full().flex().flex_col().gap(px(layout.gap));
         if accounts.is_empty() {
             return body.child(
                 div().flex_1().flex().items_center().justify_center().child(
@@ -760,11 +776,13 @@ impl Dashboard {
             .flex()
             .items_center()
             .gap(px(10.))
-            .child(provider_mark(provider, self.config.dark).size(px(if layout.cards {
-                28.
-            } else {
-                22.
-            })))
+            .child(
+                provider_mark(provider, self.config.dark).size(px(if layout.cards {
+                    28.
+                } else {
+                    22.
+                })),
+            )
             .child(
                 div()
                     .flex_1()
@@ -823,7 +841,9 @@ impl Dashboard {
             .children(status.limits.iter().take(layout.limits).map(|limit| {
                 div()
                     .when(!layout.cards, |cell| cell.flex_1().min_w_0())
-                    .when(layout.cards, |cell| cell.h(px(48.)).flex_shrink_0().pt(px(6.)))
+                    .when(layout.cards, |cell| {
+                        cell.h(px(48.)).flex_shrink_0().pt(px(6.))
+                    })
                     .child(self.account_quota(limit, status.stale, provider, true))
             }));
         let tip = format!("{subtitle}\n{}", self.cost_caption(totals));
@@ -922,7 +942,13 @@ impl Dashboard {
             format!("{:.0}% left", limit.remaining())
         }
     }
-    fn account_quota(&self, limit: &LimitWindow, stale: bool, provider: Provider, dense: bool) -> Div {
+    fn account_quota(
+        &self,
+        limit: &LimitWindow,
+        stale: bool,
+        provider: Provider,
+        dense: bool,
+    ) -> Div {
         let theme = self.theme();
         let expired = limit.expired(Utc::now());
         let warning = !expired && !stale && limit.remaining() <= 25. && !self.config.privacy;
@@ -1051,16 +1077,19 @@ impl Dashboard {
                     .flex()
                     .flex_col()
                     .overflow_hidden()
-                    .child(self.table_header().children(columns.iter().map(|(column, width)| {
-                        self.sort_header(
-                            Table::Models,
-                            *column,
-                            Some(*width),
-                            column_align_end(*column),
-                            column_has_mark(*column, narrow),
-                            cx,
-                        )
-                    })))
+                    .child(
+                        self.table_header()
+                            .children(columns.iter().map(|(column, width)| {
+                                self.sort_header(
+                                    Table::Models,
+                                    *column,
+                                    Some(*width),
+                                    column_align_end(*column),
+                                    column_has_mark(*column, narrow),
+                                    cx,
+                                )
+                            })),
+                    )
                     .child(if shown == 0 {
                         div()
                             .flex_1()
@@ -1089,26 +1118,29 @@ impl Dashboard {
         narrow: bool,
     ) -> Div {
         let totals = &row.totals;
-        self.table_row(index).children(columns.iter().map(|(column, width)| match column {
-            Column::Model => self
-                .model_cell(&row.model, narrow.then_some(row.provider), *width)
-                .into_any_element(),
-            Column::Account => self.account_cell(row.provider, *width).into_any_element(),
-            _ => {
-                let text = match column {
-                    Column::Tokens => self.number(totals.tokens.total()),
-                    Column::Input => self.number(totals.tokens.input),
-                    Column::Output => self.number(totals.tokens.output),
-                    Column::CacheRead => self.number(totals.tokens.cache_read),
-                    Column::CacheWrite => self.number(totals.tokens.cache_write),
-                    Column::Sessions => self.number(totals.sessions as u64),
-                    _ => self.cost_text(totals),
-                };
-                let muted = *column != Column::Tokens && *column != Column::Cost;
-                self.table_cell(&text, Some(*width), column_align_end(*column), muted)
-                    .into_any_element()
-            }
-        }))
+        self.table_row(index)
+            .children(columns.iter().map(|(column, width)| {
+                match column {
+                    Column::Model => self
+                        .model_cell(&row.model, narrow.then_some(row.provider), *width)
+                        .into_any_element(),
+                    Column::Account => self.account_cell(row.provider, *width).into_any_element(),
+                    _ => {
+                        let text = match column {
+                            Column::Tokens => self.number(totals.tokens.total()),
+                            Column::Input => self.number(totals.tokens.input),
+                            Column::Output => self.number(totals.tokens.output),
+                            Column::CacheRead => self.number(totals.tokens.cache_read),
+                            Column::CacheWrite => self.number(totals.tokens.cache_write),
+                            Column::Sessions => self.number(totals.sessions as u64),
+                            _ => self.cost_text(totals),
+                        };
+                        let muted = *column != Column::Tokens && *column != Column::Cost;
+                        self.table_cell(&text, Some(*width), column_align_end(*column), muted)
+                            .into_any_element()
+                    }
+                }
+            }))
     }
 
     // ----- Limits ---------------------------------------------------------
@@ -1119,7 +1151,9 @@ impl Dashboard {
         let content_width = layout::content_width(width, height).min(1200.);
         let card_columns = if content_width >= 900. { 2 } else { 1 };
         let card_width = (content_width - 12. * (card_columns - 1) as f32) / card_columns as f32;
-        let meter_columns = ((card_width - 32. + 24.) / (220. + 24.)).floor().clamp(1., 3.) as usize;
+        let meter_columns = ((card_width - 32. + 24.) / (220. + 24.))
+            .floor()
+            .clamp(1., 3.) as usize;
         if accounts.is_empty() {
             return self.page_body().child(
                 panel(theme)
@@ -1139,81 +1173,85 @@ impl Dashboard {
         }
         self.page_body()
             .children(accounts.chunks(card_columns).map(|row| {
-                div().flex().gap(px(12.)).children(row.iter().map(|status| {
-                    let reading = if !status.stale && status.checked_at.is_some() {
-                        "Live"
-                    } else if status.checked_at.is_some() {
-                        "Cached"
-                    } else {
-                        "Not checked"
-                    };
-                    panel(theme)
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(16.))
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(10.))
-                                .child(provider_mark(status.provider, self.config.dark))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .child(title(status.provider.account_name(), theme))
-                                        .child(caption(
-                                            status
-                                                .plan
-                                                .as_deref()
-                                                .map(plan_name)
-                                                .unwrap_or_else(|| "Plan not reported".into()),
-                                            theme,
-                                        )),
-                                )
-                                .child(self.badge(reading, reading == "Live")),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(16.))
-                                .when(status.limits.is_empty(), |column| {
-                                    column.child(caption("No allowances reported", theme))
-                                })
-                                .children(status.limits.chunks(meter_columns).map(|limits| {
-                                    div()
-                                        .flex()
-                                        .gap(px(24.))
-                                        .children(limits.iter().map(|limit| {
-                                            div().flex_1().min_w_0().child(self.quota(
-                                                limit,
-                                                status.stale,
-                                                status.provider,
-                                            ))
-                                        }))
-                                        .children((limits.len()..meter_columns).map(|_| {
-                                            div().flex_1().min_w_0()
-                                        }))
-                                })),
-                        )
-                        .child(div().flex_1())
-                        .child(caption(
-                            status
-                                .checked_at
-                                .map(|at| {
-                                    format!(
-                                        "Checked {}",
-                                        at.with_timezone(&Local).format("%b %-d, %H:%M")
+                div()
+                    .flex()
+                    .gap(px(12.))
+                    .children(row.iter().map(|status| {
+                        let reading = if !status.stale && status.checked_at.is_some() {
+                            "Live"
+                        } else if status.checked_at.is_some() {
+                            "Cached"
+                        } else {
+                            "Not checked"
+                        };
+                        panel(theme)
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(16.))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(10.))
+                                    .child(provider_mark(status.provider, self.config.dark))
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .child(title(status.provider.account_name(), theme))
+                                            .child(caption(
+                                                status
+                                                    .plan
+                                                    .as_deref()
+                                                    .map(plan_name)
+                                                    .unwrap_or_else(|| "Plan not reported".into()),
+                                                theme,
+                                            )),
                                     )
-                                })
-                                .unwrap_or_else(|| "Not checked".into()),
-                            theme,
-                        ))
-                }))
-                .children((row.len()..card_columns).map(|_| div().flex_1()))
+                                    .child(self.badge(reading, reading == "Live")),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(16.))
+                                    .when(status.limits.is_empty(), |column| {
+                                        column.child(caption("No allowances reported", theme))
+                                    })
+                                    .children(status.limits.chunks(meter_columns).map(|limits| {
+                                        div()
+                                            .flex()
+                                            .gap(px(24.))
+                                            .children(limits.iter().map(|limit| {
+                                                div().flex_1().min_w_0().child(self.quota(
+                                                    limit,
+                                                    status.stale,
+                                                    status.provider,
+                                                ))
+                                            }))
+                                            .children(
+                                                (limits.len()..meter_columns)
+                                                    .map(|_| div().flex_1().min_w_0()),
+                                            )
+                                    })),
+                            )
+                            .child(div().flex_1())
+                            .child(caption(
+                                status
+                                    .checked_at
+                                    .map(|at| {
+                                        format!(
+                                            "Checked {}",
+                                            at.with_timezone(&Local).format("%b %-d, %H:%M")
+                                        )
+                                    })
+                                    .unwrap_or_else(|| "Not checked".into()),
+                                theme,
+                            ))
+                    }))
+                    .children((row.len()..card_columns).map(|_| div().flex_1()))
             }))
     }
 
@@ -1261,8 +1299,14 @@ impl Dashboard {
         let records_empty = matched == 0;
         let extras = vec![
             self.activity_row_options(cx).into_any_element(),
-            self.icon_button("activity-export", "export", "Export CSV", UiAction::Export, cx)
-                .into_any_element(),
+            self.icon_button(
+                "activity-export",
+                "export",
+                "Export CSV",
+                UiAction::Export,
+                cx,
+            )
+            .into_any_element(),
         ];
         div()
             .size_full()
@@ -1288,19 +1332,24 @@ impl Dashboard {
                     .flex()
                     .flex_col()
                     .overflow_hidden()
-                    .child(self.table_header().children(columns.iter().map(|(column, width)| {
-                        self.sort_header(
-                            Table::Activity,
-                            *column,
-                            Some(*width),
-                            column_align_end(*column),
-                            column_has_mark(*column, narrow),
-                            cx,
-                        )
-                    })))
+                    .child(
+                        self.table_header()
+                            .children(columns.iter().map(|(column, width)| {
+                                self.sort_header(
+                                    Table::Activity,
+                                    *column,
+                                    Some(*width),
+                                    column_align_end(*column),
+                                    column_has_mark(*column, narrow),
+                                    cx,
+                                )
+                            })),
+                    )
                     .child(
                         div()
-                            .id(SharedString::from(format!("activity-rows-{page}-{page_size}")))
+                            .id(SharedString::from(format!(
+                                "activity-rows-{page}-{page_size}"
+                            )))
                             .flex_1()
                             .min_h_0()
                             .overflow_y_scroll()
@@ -1360,7 +1409,11 @@ impl Dashboard {
                 .into_any_element(),
             Column::Time => self
                 .table_cell(
-                    &time(if narrow { "%-m/%-d %H:%M" } else { "%b %-d, %H:%M" }),
+                    &time(if narrow {
+                        "%-m/%-d %H:%M"
+                    } else {
+                        "%b %-d, %H:%M"
+                    }),
                     Some(width),
                     false,
                     true,
@@ -1374,10 +1427,16 @@ impl Dashboard {
                 } else {
                     &record.project
                 };
-                self.table_cell(project, Some(width), false, true).into_any_element()
+                self.table_cell(project, Some(width), false, true)
+                    .into_any_element()
             }
             Column::Tokens => self
-                .table_cell(&self.number(record.tokens.total()), Some(width), true, false)
+                .table_cell(
+                    &self.number(record.tokens.total()),
+                    Some(width),
+                    true,
+                    false,
+                )
                 .into_any_element(),
             _ => {
                 let text = match analytics::record_cost(record) {
@@ -1385,7 +1444,8 @@ impl Dashboard {
                     Some((cost, _)) => self.money(cost),
                     None => analytics::empty_value().into(),
                 };
-                self.table_cell(&text, Some(width), true, false).into_any_element()
+                self.table_cell(&text, Some(width), true, false)
+                    .into_any_element()
             }
         }
     }
@@ -1422,13 +1482,26 @@ impl Dashboard {
             menu
         })
     }
-    fn activity_pager(&self, page: usize, page_count: usize, narrow: bool, cx: &Context<Self>) -> Div {
+    fn activity_pager(
+        &self,
+        page: usize,
+        page_count: usize,
+        narrow: bool,
+        cx: &Context<Self>,
+    ) -> Div {
         let theme = self.theme();
         div()
             .flex()
             .items_center()
             .gap(px(2.))
-            .child(self.page_step("activity-prev", "Prev", page > 0, false, page.saturating_sub(1), cx))
+            .child(self.page_step(
+                "activity-prev",
+                "Prev",
+                page > 0,
+                false,
+                page.saturating_sub(1),
+                cx,
+            ))
             .children(
                 (if narrow {
                     Vec::new()
@@ -1485,8 +1558,14 @@ impl Dashboard {
             .items_center()
             .justify_center()
             .text_size(px(12.))
-            .text_color(rgb(if current || enabled { theme.ink } else { theme.faint }))
-            .when(current, |chip| chip.bg(rgb(theme.wash)).font_weight(FontWeight::MEDIUM))
+            .text_color(rgb(if current || enabled {
+                theme.ink
+            } else {
+                theme.faint
+            }))
+            .when(current, |chip| {
+                chip.bg(rgb(theme.wash)).font_weight(FontWeight::MEDIUM)
+            })
             .when(enabled && !current, |chip| {
                 chip.cursor_pointer()
                     .hover(move |style| style.bg(rgb(theme.wash)))
@@ -1628,7 +1707,9 @@ impl Dashboard {
         let summary = self.connection_summary(status);
         let sources = self.listed_sources(status);
         div()
-            .when(divider, |row| row.border_t_1().border_color(rgb(theme.line)))
+            .when(divider, |row| {
+                row.border_t_1().border_color(rgb(theme.line))
+            })
             .px(px(16.))
             .py(px(14.))
             .flex()
@@ -1677,9 +1758,9 @@ impl Dashboard {
                                             .child(source.text.clone()),
                                     )
                                     .when_some(remove, |row, (id, action)| {
-                                        row.child(self.icon_button(
-                                            id, "close", "Remove", action, cx,
-                                        ))
+                                        row.child(
+                                            self.icon_button(id, "close", "Remove", action, cx),
+                                        )
                                     })
                             }))
                             .child(
@@ -1898,9 +1979,13 @@ impl Dashboard {
             "Starting"
         };
         let section = |name: &str| {
-            panel(theme)
-                .p(px(0.))
-                .child(div().px(px(16.)).pt(px(14.)).pb(px(4.)).child(title(name.to_owned(), theme)))
+            panel(theme).p(px(0.)).child(
+                div()
+                    .px(px(16.))
+                    .pt(px(14.))
+                    .pb(px(4.))
+                    .child(title(name.to_owned(), theme)),
+            )
         };
         div()
             .w_full()
@@ -1911,42 +1996,76 @@ impl Dashboard {
             .gap(px(12.))
             .child(
                 section("Display")
-                    .child(self.preference_row(
-                        "Appearance",
-                        "",
-                        self.segmented(
-                            "appearance",
-                            vec![
-                                Segment::new("Light", !self.config.dark, if self.config.dark { UiAction::Dark } else { UiAction::Noop }),
-                                Segment::new("Dark", self.config.dark, if self.config.dark { UiAction::Noop } else { UiAction::Dark }),
-                            ],
-                            64.,
-                            cx,
-                        )
-                        .into_any_element(),
-                    ))
-                    .child(self.preference_row(
-                        "Privacy mode",
-                        "Hide amounts, tokens, projects and paths",
-                        self.toggle(
-                            "privacy-toggle",
-                            self.config.privacy,
-                            |view, _, window, cx| view.perform(UiAction::Privacy, window, cx),
-                            cx,
-                        )
-                        .into_any_element(),
-                    )),
+                    .child(
+                        self.preference_row(
+                            "Appearance",
+                            "",
+                            self.segmented(
+                                "appearance",
+                                vec![
+                                    Segment::new(
+                                        "Light",
+                                        !self.config.dark,
+                                        if self.config.dark {
+                                            UiAction::Dark
+                                        } else {
+                                            UiAction::Noop
+                                        },
+                                    ),
+                                    Segment::new(
+                                        "Dark",
+                                        self.config.dark,
+                                        if self.config.dark {
+                                            UiAction::Noop
+                                        } else {
+                                            UiAction::Dark
+                                        },
+                                    ),
+                                ],
+                                64.,
+                                cx,
+                            )
+                            .into_any_element(),
+                        ),
+                    )
+                    .child(
+                        self.preference_row(
+                            "Privacy mode",
+                            "Hide amounts, tokens, projects and paths",
+                            self.toggle(
+                                "privacy-toggle",
+                                self.config.privacy,
+                                |view, _, window, cx| view.perform(UiAction::Privacy, window, cx),
+                                cx,
+                            )
+                            .into_any_element(),
+                        ),
+                    ),
             )
             .child(
-                section("Data").child(self.preference_row(
-                    "Automatic refresh",
-                    if narrow {
-                        ""
-                    } else {
-                        "Costs are reported or estimated at API rates and exclude subscriptions"
-                    },
-                    self.segmented("interval", intervals, 44., cx).into_any_element(),
-                )),
+                section("Data").child(
+                    self.preference_row(
+                        "Network access",
+                        "Allow provider account checks and model price downloads",
+                        self.toggle(
+                            "online-toggle",
+                            self.config.online,
+                            |view, _, window, cx| view.perform(UiAction::Online, window, cx),
+                            cx,
+                        ).into_any_element(),
+                    ),
+                ).child(
+                    self.preference_row(
+                        "Automatic refresh",
+                        if narrow {
+                            ""
+                        } else {
+                            "Costs are reported or estimated at API rates and exclude subscriptions"
+                        },
+                        self.segmented("interval", intervals, 44., cx)
+                            .into_any_element(),
+                    ),
+                ),
             )
             .child(
                 section(if cfg!(target_os = "macos") {
@@ -1954,38 +2073,42 @@ impl Dashboard {
                 } else {
                     "System tray"
                 })
-                .child(self.preference_row(
-                    tray,
-                    self.tray_error.as_deref().unwrap_or(if self.tray.is_some() {
-                        if cfg!(target_os = "macos") {
-                            "Closing hides to the menu bar"
-                        } else {
-                            "Closing hides to the system tray"
-                        }
-                    } else {
-                        "Closing the window quits the app"
-                    }),
-                    div()
-                        .flex()
-                        .gap(px(8.))
-                        .child(self.button(
-                            "settings-quick",
-                            "Quick view",
-                            Some("overview"),
-                            false,
-                            UiAction::Compact,
-                            cx,
-                        ))
-                        .child(self.button(
-                            "settings-quit",
-                            "Quit",
-                            None,
-                            false,
-                            UiAction::Quit,
-                            cx,
-                        ))
-                        .into_any_element(),
-                )),
+                .child(
+                    self.preference_row(
+                        tray,
+                        self.tray_error
+                            .as_deref()
+                            .unwrap_or(if self.tray.is_some() {
+                                if cfg!(target_os = "macos") {
+                                    "Closing hides to the menu bar"
+                                } else {
+                                    "Closing hides to the system tray"
+                                }
+                            } else {
+                                "Closing the window quits the app"
+                            }),
+                        div()
+                            .flex()
+                            .gap(px(8.))
+                            .child(self.button(
+                                "settings-quick",
+                                "Quick view",
+                                Some("overview"),
+                                false,
+                                UiAction::Compact,
+                                cx,
+                            ))
+                            .child(self.button(
+                                "settings-quit",
+                                "Quit",
+                                None,
+                                false,
+                                UiAction::Quit,
+                                cx,
+                            ))
+                            .into_any_element(),
+                    ),
+                ),
             )
     }
     fn preference_row(&self, name: &str, description: &str, control: AnyElement) -> Div {
@@ -2156,8 +2279,7 @@ fn column_has_mark(column: Column, narrow: bool) -> bool {
 }
 /// Width inside the table padding. Header and rows both spend this on columns.
 fn table_track(content_width: f32, columns: usize) -> f32 {
-    let chrome =
-        TABLE_BORDER * 2. + TABLE_PAD * 2. + COLUMN_GAP * columns.saturating_sub(1) as f32;
+    let chrome = TABLE_BORDER * 2. + TABLE_PAD * 2. + COLUMN_GAP * columns.saturating_sub(1) as f32;
     (content_width - chrome).max(0.)
 }
 /// One width per column. `None` in `specs` shares whatever the fixed columns
@@ -2200,7 +2322,12 @@ fn model_column_widths(width: f32) -> Vec<(Column, f32)> {
         ]
     };
     let mut specs = vec![(Column::Model, None)];
-    specs.extend(fixed.iter().copied().map(|(column, width)| (column, Some(width))));
+    specs.extend(
+        fixed
+            .iter()
+            .copied()
+            .map(|(column, width)| (column, Some(width))),
+    );
     resolve_columns(width, &specs)
 }
 /// Every Activity column, in header and row order.

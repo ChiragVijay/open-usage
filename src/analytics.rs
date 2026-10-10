@@ -389,9 +389,9 @@ pub fn export_csv(
         writer.write_record([
             record.timestamp.to_rfc3339(),
             record.provider.key().into(),
-            record.model.clone(),
-            record.project.clone(),
-            record.session.clone(),
+            csv_text(&record.model),
+            csv_text(&record.project),
+            csv_text(&record.session),
             record.tokens.input.to_string(),
             record.tokens.output.to_string(),
             record.tokens.cache_read.to_string(),
@@ -410,6 +410,17 @@ pub fn export_csv(
     }
     writer.flush()?;
     Ok(count)
+}
+// CSV quoting does not stop spreadsheet applications from evaluating formulas.
+fn csv_text(value: &str) -> String {
+    let trimmed = value.trim_start_matches(|character: char| {
+        character.is_whitespace() || character.is_control() || character == '\u{feff}'
+    });
+    if trimmed.starts_with(['=', '+', '-', '@']) || value.starts_with(['\t', '\r', '\n']) {
+        format!("'{value}")
+    } else {
+        value.to_owned()
+    }
 }
 pub fn compact(value: u64) -> String {
     if value >= 1_000_000_000 {
@@ -444,7 +455,26 @@ pub fn hidden_value() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{empty_value, hidden_value, separator};
+    use super::{csv_text, empty_value, hidden_value, separator};
+
+    #[test]
+    fn csv_text_cannot_start_a_spreadsheet_formula() {
+        for value in [
+            "=HYPERLINK(\"https://example.invalid\")",
+            "+1",
+            "-1",
+            "@SUM(A1)",
+            "  =1",
+            "\tdata",
+            "\rdata",
+            "\ndata",
+            "\0=1",
+            "\u{feff}=1",
+        ] {
+            assert_eq!(csv_text(value), format!("'{value}"));
+        }
+        assert_eq!(csv_text("my-project"), "my-project");
+    }
 
     #[test]
     fn empty_value_is_a_plain_hyphen() {

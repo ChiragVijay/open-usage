@@ -55,7 +55,9 @@ impl Dashboard {
             .small()
             .h(px(CONTROL_HEIGHT))
             .rounded(px(RADIUS))
-            .when(text.is_empty(), |button| button.w(px(CONTROL_HEIGHT)).px(px(0.)))
+            .when(text.is_empty(), |button| {
+                button.w(px(CONTROL_HEIGHT)).px(px(0.))
+            })
             .custom(self.variant(active, cx))
             .when_some(glyph, |button, glyph| {
                 button.child(icon(glyph, theme).size(px(15.)).text_color(rgb(theme.ink)))
@@ -111,7 +113,11 @@ impl Dashboard {
                     .when(active, |text| text.font_weight(FontWeight::MEDIUM))
                     .child(text.into()),
             )
-            .child(icon("chevron", theme).size(px(12.)).text_color(rgb(theme.muted)))
+            .child(
+                icon("chevron", theme)
+                    .size(px(12.))
+                    .text_color(rgb(theme.muted)),
+            )
     }
     /// Equal-width text tabs. The active one is marked by ink and a short rule
     /// underneath rather than a filled chip, so toolbars stay quiet.
@@ -161,8 +167,7 @@ impl Dashboard {
                     })
                     .when_some(segment.tooltip, |chip, tooltip| {
                         chip.tooltip(move |window, cx| {
-                            gpui_component::tooltip::Tooltip::new(tooltip.clone())
-                                .build(window, cx)
+                            gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
                         })
                     })
                     .on_click(cx.listener(move |view, _, window, cx| {
@@ -212,7 +217,11 @@ impl Dashboard {
             .text_color(rgb(theme.muted))
             .hover(move |style| style.bg(rgb(theme.wash)).text_color(rgb(theme.ink)))
             .when_some(glyph, |row, glyph| {
-                row.child(icon(glyph, theme).size(px(12.)).text_color(rgb(theme.muted)))
+                row.child(
+                    icon(glyph, theme)
+                        .size(px(12.))
+                        .text_color(rgb(theme.muted)),
+                )
             })
             .child(text)
             .on_click(
