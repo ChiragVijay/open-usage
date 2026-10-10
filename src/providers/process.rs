@@ -8,7 +8,31 @@ use std::{
 
 // Capture bounded output without logging command lines, which carry a CSRF token.
 fn output(program: &str, args: &[&str]) -> Option<String> {
-    let mut command = Command::new(program);
+    // Never resolve process-inspection utilities from an untrusted working directory or PATH.
+    #[cfg(windows)]
+    let mut command = {
+        use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
+        if program != "powershell.exe" {
+            return None;
+        }
+        let mut directory = [0_u16; 260];
+        // SAFETY: the buffer is writable for the size passed to the Windows API.
+        let length =
+            unsafe { GetSystemDirectoryW(directory.as_mut_ptr(), directory.len() as u32) } as usize;
+        if length == 0 || length >= directory.len() {
+            return None;
+        }
+        let system = std::path::PathBuf::from(String::from_utf16(&directory[..length]).ok()?);
+        Command::new(system.join("WindowsPowerShell/v1.0/powershell.exe"))
+    };
+    #[cfg(not(windows))]
+    let mut command = Command::new(match program {
+        "ps" => "/bin/ps",
+        "lsof" if cfg!(target_os = "macos") => "/usr/sbin/lsof",
+        "lsof" => "/usr/bin/lsof",
+        "ss" => "/usr/bin/ss",
+        _ => return None,
+    });
     command
         .args(args)
         .stdout(Stdio::piped())

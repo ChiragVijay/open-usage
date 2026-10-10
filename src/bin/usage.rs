@@ -17,7 +17,7 @@ fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!(
-            "usage [--refresh] [--online|--offline] [--json] [--period 2h|24h|7d|30d|90d|today] [--days 1|7|30|90]\n\nUsage and allowances for ChatGPT, Claude Code, Cursor, Kiro, Antigravity, and OpenCode. Costs use reported amounts or public API-rate estimates. --online checks existing logins; --offline reads local history and cached allowances.\nNo prompts, conversations, or credentials are printed."
+            "usage [--refresh] [--online|--offline] [--json] [--period 2h|24h|7d|30d|90d|today] [--days 1|7|30|90]\n\nUsage and allowances for ChatGPT, Claude Code, Cursor, Kiro, Antigravity, and OpenCode. Costs use reported amounts or public API-rate estimates. --online checks existing logins and downloads prices; --offline reads local history and cached allowances/prices without network requests. New installs default to offline; existing settings are respected.\nNo prompts, conversations, or credentials are printed."
         );
         return Ok(());
     }
@@ -60,7 +60,7 @@ fn run() -> Result<()> {
     } else {
         cached
     };
-    open_usage::pricing::prepare();
+    open_usage::pricing::prepare(config.online);
     let now = chrono::Utc::now();
     let analysis = analytics::analyze(&snapshot, &config, period, None, now);
     if args.contains(&"--json".into()) {
@@ -111,7 +111,11 @@ fn run() -> Result<()> {
                 "{}",
                 [
                     status.provider.account_name().to_string(),
-                    status.plan.as_deref().unwrap_or("Plan unavailable").to_string(),
+                    status
+                        .plan
+                        .as_deref()
+                        .unwrap_or("Plan unavailable")
+                        .to_string(),
                     format!("{} tokens", analytics::compact(totals.tokens.total())),
                     format!("{cost_label}: {spend}"),
                 ]

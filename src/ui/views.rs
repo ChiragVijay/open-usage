@@ -2100,6 +2100,17 @@ impl Dashboard {
             .child(
                 section("Data").child(
                     self.preference_row(
+                        "Network access",
+                        "Allow provider account checks and model price downloads",
+                        self.toggle(
+                            "online-toggle",
+                            self.config.online,
+                            |view, _, window, cx| view.perform(UiAction::Online, window, cx),
+                            cx,
+                        ).into_any_element(),
+                    ),
+                ).child(
+                    self.preference_row(
                         "Automatic refresh",
                         if narrow {
                             ""

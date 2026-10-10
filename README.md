@@ -23,11 +23,11 @@ Sign in through your provider's app or CLI. Open Usage discovers existing logins
 | ChatGPT | Codex login and local session history |
 | Claude Code | Claude Code OAuth login and local history |
 | Cursor | Cursor desktop/CLI login or dashboard CSV |
-| Kiro | Kiro CLI or IDE login; usage is reported in credits |
+| Kiro | Kiro CLI or IDE login, including Kiro Crew; usage is reported in credits |
 | Antigravity | IDE/`agy` connection or existing OAuth login; local generation history |
 | OpenCode | Local Go/Zen history; a Go key supplies account limits |
 
-Kiro, Antigravity, and OpenCode quota parsing is fixture-tested; signed-in live checks and macOS execution still need validation.
+Kiro credits and Antigravity quotas are verified with Windows CLI logins. OpenCode quota parsing is fixture-tested; its signed-in live checks and macOS execution still need validation.
 
 ## Using the app
 

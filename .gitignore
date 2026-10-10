@@ -8,4 +8,17 @@
 *.local.json
 .DS_Store
 Thumbs.db
+/.kiro/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+auth.json
+.credentials.json
+kiro-auth-token.json
+antigravity-oauth-token
+settings.json
+settings.pending.json
+usage-model-rates.json
 

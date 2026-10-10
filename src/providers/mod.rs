@@ -148,7 +148,7 @@ pub fn collect_with(
     previous: &Snapshot,
     progress: impl Fn(&Snapshot),
 ) -> Result<Snapshot> {
-    crate::pricing::start();
+    crate::pricing::start(config.online);
     let store = Arc::new(Mutex::new(Store::open()?));
     let environment = discovery::Environment::current();
     let mut snapshot = previous.clone();

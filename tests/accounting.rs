@@ -101,10 +101,13 @@ fn insights_group_projects_mix_and_local_hours() {
         .unwrap();
     assert_eq!(sample.totals.events, 1);
     assert_eq!(sample.totals.sessions, 1);
-    let mix = insights.mix.iter().fold(Tokens::default(), |mut sum, bucket| {
-        sum.add(&bucket.tokens);
-        sum
-    });
+    let mix = insights
+        .mix
+        .iter()
+        .fold(Tokens::default(), |mut sum, bucket| {
+            sum.add(&bucket.tokens);
+            sum
+        });
     assert_eq!(mix.total(), first.tokens.total() * 2);
     let heat: u64 = insights.heatmap.iter().flatten().sum();
     assert_eq!(heat, mix.total());

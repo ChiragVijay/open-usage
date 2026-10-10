@@ -85,6 +85,7 @@ enum UiAction {
     Refresh,
     Export,
     Privacy,
+    Online,
     Dark,
     Compact,
     Quit,
@@ -186,7 +187,7 @@ impl Dashboard {
                 }
             });
         }
-        open_usage::pricing::start();
+        open_usage::pricing::start(config.online);
         sync_components(config.dark, window, cx);
         let focus = cx.focus_handle();
         window.focus(&focus);
@@ -732,6 +733,17 @@ impl Dashboard {
                         });
                     })
                     .detach();
+                }
+            }
+            UiAction::Online => {
+                self.config.online = !self.config.online;
+                self.save(cx);
+                self.refresh(cx);
+                if !self.config.online {
+                    self.message(
+                        "Network disabled for future refreshes. Current requests may finish.",
+                        cx,
+                    );
                 }
             }
             UiAction::Privacy => {
