@@ -97,7 +97,7 @@ jobs:
             --target "$SHA" \
             --title "v${VERSION}" \
             --draft \
-            --notes "Open Usage ${VERSION}. Downloads: open-usage-windows.zip and open-usage-macos.zip."
+            --notes "Open Usage ${VERSION}. Downloads: open-usage.exe and open-usage.dmg."
 
   windows:
     name: Windows
@@ -118,22 +118,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.97.1
       - name: Package
         run: cargo run --bin package
-      - name: Zip Windows package
+      - name: Prepare Windows exe
         shell: pwsh
         run: |
-          $tar = Join-Path $env:SystemRoot "System32\tar.exe"
-          & $tar -a -cf open-usage-windows.zip -C dist "Open Usage-windows"
-          $listing = & $tar -tf open-usage-windows.zip
-          $listing
-          if (-not ($listing -match 'Open Usage\.exe')) {
-            throw "Windows package zip is missing Open Usage.exe"
-          }
+          Copy-Item "dist\Open Usage-windows\Open Usage.exe" "open-usage.exe"
+          if (-not (Test-Path "open-usage.exe")) { throw "open-usage.exe was not produced" }
       - name: Upload release asset
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ needs.bump.outputs.version }}
-        run: gh release upload "$env:TAG" open-usage-windows.zip --clobber
+        run: gh release upload "$env:TAG" open-usage.exe --clobber
 
   macos:
     name: macOS
@@ -154,17 +149,24 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.97.1
       - name: Package
         run: cargo run --bin package
-      - name: Zip Mac app
+      - name: Build Mac disk image
         run: |
           set -euo pipefail
-          ditto -c -k --keepParent "dist/Open Usage.app" open-usage-macos.zip
-          unzip -l open-usage-macos.zip
-          unzip -l open-usage-macos.zip | grep -q "Open Usage.app/Contents/MacOS/open-usage"
+          test -d "dist/Open Usage.app"
+          stage="$(mktemp -d)"
+          cp -R "dist/Open Usage.app" "$stage/"
+          hdiutil create -volname "Open Usage" -srcfolder "$stage" -ov -format UDZO open-usage.dmg
+          rm -rf "$stage"
+          mount="$(mktemp -d)"
+          hdiutil attach open-usage.dmg -nobrowse -readonly -mountpoint "$mount"
+          test -x "$mount/Open Usage.app/Contents/MacOS/open-usage"
+          hdiutil detach "$mount"
+          rmdir "$mount"
       - name: Upload release asset
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ needs.bump.outputs.version }}
-        run: gh release upload "$TAG" open-usage-macos.zip --clobber
+        run: gh release upload "$TAG" open-usage.dmg --clobber
 
   publish:
     name: Publish
@@ -179,6 +181,6 @@ jobs:
           set -euo pipefail
           assets="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
           printf '%s\n' "$assets"
-          printf '%s\n' "$assets" | grep -qx "open-usage-windows.zip"
-          printf '%s\n' "$assets" | grep -qx "open-usage-macos.zip"
+          printf '%s\n' "$assets" | grep -qx "open-usage.exe"
+          printf '%s\n' "$assets" | grep -qx "open-usage.dmg"
           gh release edit "$TAG" --draft=false
