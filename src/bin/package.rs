@@ -66,10 +66,8 @@ fn run() -> Result<()> {
                 root.join("docs/licenses/OpenUsage-Windows-MIT.txt"),
                 resources.join("OpenUsage-Windows-MIT.txt"),
             )?;
-            fs::copy(
-                root.join("target/release/open-usage"),
-                binaries.join("open-usage"),
-            )?;
+            let executable = binaries.join("open-usage");
+            fs::copy(root.join("target/release/open-usage"), &executable)?;
             fs::copy(
                 root.join("assets/AppIcon.icns"),
                 resources.join("AppIcon.icns"),
@@ -77,17 +75,76 @@ fn run() -> Result<()> {
             fs::write(
                 contents.join("Info.plist"),
                 format!(
-                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>CFBundleName</key><string>Open Usage</string>\n<key>CFBundleDisplayName</key><string>Open Usage</string>\n<key>CFBundleIdentifier</key><string>dev.chirag.open-usage</string>\n<key>CFBundleExecutable</key><string>open-usage</string>\n<key>CFBundleIconFile</key><string>AppIcon</string>\n<key>CFBundlePackageType</key><string>APPL</string>\n<key>CFBundleShortVersionString</key><string>{}</string>\n<key>CFBundleVersion</key><string>1</string>\n<key>LSMinimumSystemVersion</key><string>13.0</string>\n<key>NSHighResolutionCapable</key><true/>\n</dict></plist>\n",
-                    env!("CARGO_PKG_VERSION")
+                    r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+<key>CFBundleName</key><string>Open Usage</string>
+<key>CFBundleDisplayName</key><string>Open Usage</string>
+<key>CFBundleIdentifier</key><string>dev.chirag.open-usage</string>
+<key>CFBundleExecutable</key><string>open-usage</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+<key>CFBundleSignature</key><string>????</string>
+<key>CFBundleShortVersionString</key><string>{version}</string>
+<key>CFBundleVersion</key><string>{version}</string>
+<key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+"#,
+                    version = env!("CARGO_PKG_VERSION")
                 ),
             )?;
+            // Eight bytes, no trailing newline. Finder uses this as the bundle type.
+            fs::write(contents.join("PkgInfo"), "APPL????")?;
+            #[cfg(unix)]
+            {
+                make_executable(&executable)?;
+                sign_app(&bundle)?;
+            }
             fs::copy(root.join("target/release/usage"), output.join("usage"))?;
             println!(
-                "App bundle: {}\nThis local development bundle is unsigned.",
+                "App bundle: {}\nAd-hoc signed. Notarization is not configured.",
                 bundle.display()
             );
         }
         platform => bail!("Packaging is supported on Windows and macOS, not {platform}"),
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn make_executable(path: &std::path::Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = fs::metadata(path)?.permissions();
+    permissions.set_mode(permissions.mode() | 0o755);
+    fs::set_permissions(path, permissions)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn sign_app(bundle: &std::path::Path) -> Result<()> {
+    // The linker ad-hoc signature says resources are sealed, but a freshly
+    // copied bundle has no CodeResources file. Gatekeeper then reports the
+    // download as damaged. An ad-hoc codesign replaces that signature.
+    let status = Command::new("/usr/bin/codesign")
+        .args(["--force", "--sign", "-"])
+        .arg(bundle)
+        .status()
+        .context("codesign could not be started")?;
+    if !status.success() {
+        bail!("Ad-hoc code signature failed");
+    }
+    let status = Command::new("/usr/bin/codesign")
+        .args(["--verify", "--deep", "--strict"])
+        .arg(bundle)
+        .status()
+        .context("codesign could not be started")?;
+    if !status.success() {
+        bail!("Ad-hoc code signature did not verify");
     }
     Ok(())
 }

@@ -186,16 +186,7 @@ jobs:
           set -euo pipefail
           test -d "dist/Open Usage.app"
           test "$(lipo -archs 'dist/Open Usage.app/Contents/MacOS/open-usage')" = "arm64"
-          stage="$(mktemp -d)"
-          cp -R "dist/Open Usage.app" "$stage/"
-          ln -s /Applications "$stage/Applications"
-          hdiutil create -volname "Open Usage" -srcfolder "$stage" -ov -format UDZO open-usage.dmg
-          rm -rf "$stage"
-          mount="$(mktemp -d)"
-          hdiutil attach open-usage.dmg -nobrowse -readonly -mountpoint "$mount"
-          test -x "$mount/Open Usage.app/Contents/MacOS/open-usage"
-          hdiutil detach "$mount"
-          rmdir "$mount"
+          sh tests/macos-dmg.sh "dist/Open Usage.app" open-usage.dmg
       - name: Upload release asset
         env:
           GH_TOKEN: ${{ github.token }}

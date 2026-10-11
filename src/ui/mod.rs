@@ -9,6 +9,10 @@ mod tray;
 mod views;
 mod window;
 
+pub(crate) use window::WINDOW_TITLE;
+#[cfg(windows)]
+pub(crate) use window::claim_single_instance;
+
 use chrono::Utc;
 use controls::Segment;
 use gpui::{div, prelude::*, px, rgb, *};

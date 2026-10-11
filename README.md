@@ -15,7 +15,7 @@ Download the app from [GitHub Releases](https://github.com/ChiragVijay/open-usag
 | Windows x64 | `open-usage.exe` | Run the download. It installs for the current user, with no admin prompt, to `%LOCALAPPDATA%\Open Usage\open-usage.exe` and adds an Open Usage shortcut at `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Open Usage.lnk`. |
 | macOS 13 or later, Apple Silicon | `open-usage.dmg` | Open the disk image and drag **Open Usage.app** into **Applications**. |
 
-The macOS release supports Apple Silicon only; there is no Intel or universal DMG. Signing and notarization are not configured, so macOS may block the downloaded app. These downloads do not require Rust or the development tools below.
+The macOS release supports Apple Silicon only; there is no Intel or universal DMG. The app inside the disk image is ad-hoc signed. Notarization is not configured, so a browser download may still be reported as damaged until it is notarized. These downloads do not require Rust or the development tools below.
 
 ### Build from source
 
@@ -81,7 +81,7 @@ cargo test --all-targets
 cargo run --bin package
 ```
 
-Packaging creates a release build in `dist/` for the current platform. macOS signing and notarization are not configured.
+Packaging creates a release build in `dist/` for the current platform. The macOS app is ad-hoc signed. Notarization is not configured.
 
 ## Publishing a release
 
@@ -90,7 +90,7 @@ After the **Release** workflow is merged into the default branch:
 1. Open **Actions → Release → Run workflow** and select `main`.
 2. Choose a `patch`, `minor`, or `major` version bump. Choose `finish` to build the current version and publish its existing draft without bumping again.
 3. Run the workflow. A bump updates `Cargo.toml` and `Cargo.lock`, commits that version to the selected branch, and creates the `vX.Y.Z` tag with a draft GitHub release. `finish` keeps the current version and the open draft.
-4. Windows and Apple Silicon macOS jobs build that commit and upload `open-usage.exe` and `open-usage.dmg`. The Mac job verifies both the Rust host and packaged executable are ARM64 and runs the update-helper regression checks.
+4. Windows and Apple Silicon macOS jobs build that commit and upload `open-usage.exe` and `open-usage.dmg`. The Mac job verifies both the Rust host and packaged executable are ARM64, runs the update-helper regression checks, and runs `hdiutil verify` and `hdiutil attach` on `open-usage.dmg`.
 5. The publish job verifies both assets exist, then publishes the release so desktop update checks can discover it.
 
 The workflow needs permission to push the version commit and write releases; branch rules must allow that push. If packaging or publication fails, the release stays a draft. Run the workflow again with `finish` so that version gets both assets and is published. Do not start another bump while the draft is still open.
