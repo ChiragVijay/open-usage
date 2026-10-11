@@ -135,8 +135,10 @@ jobs:
           if ($found -ne $env:VERSION) { throw "Cargo.toml version is $found, expected $env:VERSION" }
       # Matches the Rust pin in mise.toml.
       - uses: dtolnay/rust-toolchain@1.97.1
+      - name: Build release
+        run: cargo build --release
       - name: Package
-        run: cargo run --bin package
+        run: target/release/package.exe --skip-build
       - name: Prepare Windows exe
         shell: pwsh
         run: |
@@ -175,8 +177,10 @@ jobs:
           grep -qx 'host: aarch64-apple-darwin' rustc-version.txt
       - name: Verify update helper
         run: sh tests/macos-update.sh src/update/macos-replace.sh
+      - name: Build release
+        run: cargo build --release
       - name: Package
-        run: cargo run --bin package
+        run: target/release/package --skip-build
       - name: Build Mac disk image
         run: |
           set -euo pipefail
