@@ -15,6 +15,8 @@ pub struct Config {
     pub dark: bool,
     pub privacy: bool,
     pub refresh_seconds: u64,
+    /// Version postponed with Delay. The next launch asks again.
+    pub update_delayed: Option<String>,
     #[serde(deserialize_with = "custom_homes")]
     pub custom_homes: [Vec<PathBuf>; Provider::COUNT],
     pub cursor_imports: Vec<PathBuf>,
@@ -27,6 +29,7 @@ impl Default for Config {
             dark: false,
             privacy: false,
             refresh_seconds: DEFAULT_REFRESH_SECONDS,
+            update_delayed: None,
             custom_homes: Default::default(),
             cursor_imports: vec![],
         }

@@ -2165,6 +2165,81 @@ impl Dashboard {
                     ),
                 ),
             )
+            .child(section("Updates").child({
+                let note = if let Some(version) = &self.config.update_delayed {
+                    format!("{version} delayed. The next launch asks again.")
+                } else {
+                    "Checks the latest stable GitHub release".into()
+                };
+                self.preference_row(
+                    &format!("Version {}", open_usage::update::current_version()),
+                    &note,
+                    self.button(
+                        "settings-update",
+                        if self.update_checking {
+                            "Checking"
+                        } else {
+                            "Check for updates"
+                        },
+                        None,
+                        false,
+                        if self.update_checking {
+                            UiAction::Noop
+                        } else {
+                            UiAction::CheckUpdate
+                        },
+                        cx,
+                    )
+                    .into_any_element(),
+                )
+            }))
+    }
+    pub(super) fn update_banner(&self, cx: &Context<Self>) -> Div {
+        let theme = self.theme();
+        let text = if self.update_busy {
+            "Downloading the update.".to_owned()
+        } else if let Some(offer) = &self.update_offer {
+            format!("Version {} is available.", offer.version)
+        } else {
+            "A new version is available.".to_owned()
+        };
+        div()
+            .absolute()
+            .top(px(0.))
+            .left(px(0.))
+            .right(px(0.))
+            .px(px(SPACE_M))
+            .py(px(SPACE_S))
+            .bg(rgb(theme.ink))
+            .text_color(rgb(theme.panel))
+            .flex()
+            .items_center()
+            .gap(px(SPACE_S))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(px(TYPE_BODY))
+                    .child(text),
+            )
+            .when(!self.update_busy, |bar| {
+                bar.child(self.button(
+                    "update-now",
+                    "Update now",
+                    None,
+                    false,
+                    UiAction::UpdateNow,
+                    cx,
+                ))
+                .child(self.button(
+                    "update-delay",
+                    "Delay",
+                    None,
+                    false,
+                    UiAction::UpdateDelay,
+                    cx,
+                ))
+            })
     }
     fn preference_row(&self, name: &str, description: &str, control: AnyElement) -> Div {
         let theme = self.theme();

@@ -6,3 +6,4 @@ pub mod pricing;
 pub mod providers;
 mod storage;
 pub mod store;
+pub mod update;

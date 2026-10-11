@@ -1,0 +1,198 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+env:
+  GH_REPO: ${{ github.repository }}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Bump version
+    runs-on: macos-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      sha: ${{ steps.bump.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bump Cargo version and commit
+        id: bump
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          new="$(python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+          import sys
+
+          bump = os.environ["BUMP"]
+          toml_path = pathlib.Path("Cargo.toml")
+          text = toml_path.read_text()
+          match = re.search(r'(?m)^version = "(\d+)\.(\d+)\.(\d+)"$', text)
+          if not match:
+              sys.exit("Could not read the package version from Cargo.toml")
+          major, minor, patch = (int(match.group(i)) for i in (1, 2, 3))
+          if bump == "patch":
+              patch += 1
+          elif bump == "minor":
+              minor += 1
+              patch = 0
+          elif bump == "major":
+              major += 1
+              minor = 0
+              patch = 0
+          else:
+              sys.exit(f"Unknown version bump: {bump}")
+          new = f"{major}.{minor}.{patch}"
+          toml_path.write_text(
+              text[: match.start()] + f'version = "{new}"' + text[match.end() :]
+          )
+
+          lock_path = pathlib.Path("Cargo.lock")
+          lock = lock_path.read_text()
+          updated, count = re.subn(
+              r'(name = "open-usage"\nversion = ")\d+\.\d+\.\d+(")',
+              rf"\g<1>{new}\2",
+              lock,
+              count=1,
+          )
+          if count != 1:
+              sys.exit(
+                  f"Expected to update the open-usage version in Cargo.lock once, updated {count}"
+              )
+          lock_path.write_text(updated)
+          print(new)
+          PY
+          )"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock
+          git commit -m "Bump version to ${new}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "version=${new}" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          SHA: ${{ steps.bump.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh release create "v${VERSION}" \
+            --target "$SHA" \
+            --title "v${VERSION}" \
+            --draft \
+            --notes "Open Usage ${VERSION}. Downloads: open-usage.exe and open-usage.dmg."
+
+  windows:
+    name: Windows
+    needs: bump
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump.outputs.sha }}
+      - name: Check version
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.bump.outputs.version }}
+        run: |
+          $found = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          if ($found -ne $env:VERSION) { throw "Cargo.toml version is $found, expected $env:VERSION" }
+      # Matches the Rust pin in mise.toml.
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - name: Package
+        run: cargo run --bin package
+      - name: Prepare Windows exe
+        shell: pwsh
+        run: |
+          Copy-Item "dist\Open Usage-windows\Open Usage.exe" "open-usage.exe"
+          if (-not (Test-Path "open-usage.exe")) { throw "open-usage.exe was not produced" }
+      - name: Upload release asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.bump.outputs.version }}
+        run: gh release upload "$env:TAG" open-usage.exe --clobber
+
+  macos:
+    name: macOS (Apple Silicon)
+    needs: bump
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump.outputs.sha }}
+      - name: Check version
+        env:
+          VERSION: ${{ needs.bump.outputs.version }}
+        run: |
+          set -euo pipefail
+          found="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          test "$found" = "$VERSION"
+      # Matches the Rust pin in mise.toml.
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - name: Verify Apple Silicon toolchain
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+          rustc -vV | grep -qx 'host: aarch64-apple-darwin'
+      - name: Verify update helper
+        run: sh tests/macos-update.sh src/update/macos-replace.sh
+      - name: Package
+        run: cargo run --bin package
+      - name: Build Mac disk image
+        run: |
+          set -euo pipefail
+          test -d "dist/Open Usage.app"
+          test "$(lipo -archs 'dist/Open Usage.app/Contents/MacOS/open-usage')" = "arm64"
+          stage="$(mktemp -d)"
+          cp -R "dist/Open Usage.app" "$stage/"
+          ln -s /Applications "$stage/Applications"
+          hdiutil create -volname "Open Usage" -srcfolder "$stage" -ov -format UDZO open-usage.dmg
+          rm -rf "$stage"
+          mount="$(mktemp -d)"
+          hdiutil attach open-usage.dmg -nobrowse -readonly -mountpoint "$mount"
+          test -x "$mount/Open Usage.app/Contents/MacOS/open-usage"
+          hdiutil detach "$mount"
+          rmdir "$mount"
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.bump.outputs.version }}
+        run: gh release upload "$TAG" open-usage.dmg --clobber
+
+  publish:
+    name: Publish
+    needs: [bump, windows, macos]
+    runs-on: macos-latest
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.bump.outputs.version }}
+        run: |
+          set -euo pipefail
+          assets="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          printf '%s\n' "$assets"
+          printf '%s\n' "$assets" | grep -qx "open-usage.exe"
+          printf '%s\n' "$assets" | grep -qx "open-usage.dmg"
+          gh release edit "$TAG" --draft=false
