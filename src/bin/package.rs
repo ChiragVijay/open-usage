@@ -1,4 +1,4 @@
-//! Host-platform packaging, deliberately run locally rather than in CI.
+//! Package the host platform into dist/.
 use anyhow::{Context, Result, bail};
 use std::{fs, path::PathBuf, process::Command};
 
