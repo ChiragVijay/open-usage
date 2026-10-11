@@ -4,6 +4,9 @@
 //! anywhere else, it is copied to `%LOCALAPPDATA%\Open Usage\open-usage.exe`,
 //! a Start menu shortcut is created, and the installed copy is started.
 //! Settings remain in `%LOCALAPPDATA%\open-usage`.
+//!
+//! This process exits after it starts the installed copy. It does not take the
+//! single-instance lock, so the short-lived installer cannot block that copy.
 
 use std::{
     fs::{self, File},

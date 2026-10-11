@@ -1,5 +1,8 @@
 use gpui::{App, Window};
 
+/// Native window title. The Windows single-instance lookup uses this exact text.
+pub const WINDOW_TITLE: &str = "Open Usage";
+
 /// Switch to a menu-bar app only after its tray icon is available.
 pub fn configure_tray_app() {
     #[cfg(target_os = "macos")]
@@ -34,16 +37,9 @@ pub fn hide(window: &Window, cx: &App) {
 pub fn show(window: &Window, cx: &App) {
     #[cfg(target_os = "windows")]
     if let Some(hwnd) = native_handle(window) {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            IsIconic, SW_RESTORE, SW_SHOW, ShowWindowAsync,
-        };
+        use windows::Win32::UI::WindowsAndMessaging::ShowWindowAsync;
         unsafe {
-            let command = if IsIconic(hwnd).as_bool() {
-                SW_RESTORE
-            } else {
-                SW_SHOW
-            };
-            let _ = ShowWindowAsync(hwnd, command);
+            let _ = ShowWindowAsync(hwnd, visibility_command(hwnd));
         }
     }
     #[cfg(target_os = "macos")]
@@ -89,4 +85,107 @@ pub fn restore_before_resize(window: &Window) -> bool {
     #[cfg(not(target_os = "windows"))]
     let _ = window;
     false
+}
+
+/// Take the per-session window lock. Returns false when another real window
+/// process already holds it; that window is brought forward and the caller exits.
+///
+/// Call this only after the per-user install handoff. The installer starts the
+/// installed executable and exits first, so it never holds the lock.
+#[cfg(windows)]
+pub fn claim_single_instance() -> bool {
+    use std::{thread, time::Duration};
+    use windows::{
+        Win32::{
+            Foundation::{
+                CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, SetLastError, WIN32_ERROR,
+            },
+            System::Threading::CreateMutexW,
+            UI::WindowsAndMessaging::FindWindowW,
+        },
+        core::{HSTRING, w},
+    };
+
+    let handle = unsafe {
+        // CreateMutex leaves a stale last-error when it creates the object.
+        SetLastError(WIN32_ERROR(0));
+        match CreateMutexW(None, true, w!("Local\\dev.chirag.open-usage")) {
+            Ok(handle) => handle,
+            Err(_) => return true,
+        }
+    };
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        let _ = unsafe { CloseHandle(handle) };
+        // The first process takes the lock before its window exists.
+        for _ in 0..50 {
+            if let Ok(hwnd) =
+                unsafe { FindWindowW(w!("Zed::Window"), &HSTRING::from(WINDOW_TITLE)) }
+            {
+                bring_forward(hwnd);
+                return false;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        return false;
+    }
+    // HANDLE does not close on drop. Keep the kernel object until this
+    // process exits so a later launch can find the window.
+    let _held = Box::leak(Box::new(handle));
+    true
+}
+
+#[cfg(target_os = "windows")]
+fn bring_forward(hwnd: windows::Win32::Foundation::HWND) {
+    use windows::Win32::{
+        System::Threading::{AttachThreadInput, GetCurrentThreadId},
+        UI::WindowsAndMessaging::{
+            BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+            ShowWindow,
+        },
+    };
+    unsafe {
+        let _ = ShowWindow(hwnd, visibility_command(hwnd));
+        let foreground = GetForegroundWindow();
+        let current = GetCurrentThreadId();
+        let foreground_thread = GetWindowThreadProcessId(foreground, None);
+        let target_thread = GetWindowThreadProcessId(hwnd, None);
+        let attached_foreground = foreground_thread != 0
+            && foreground_thread != current
+            && AttachThreadInput(current, foreground_thread, true).as_bool();
+        let attached_target = target_thread != 0
+            && target_thread != current
+            && target_thread != foreground_thread
+            && AttachThreadInput(current, target_thread, true).as_bool();
+        let _ = SetForegroundWindow(hwnd);
+        let _ = BringWindowToTop(hwnd);
+        if attached_target {
+            let _ = AttachThreadInput(current, target_thread, false);
+        }
+        if attached_foreground {
+            let _ = AttachThreadInput(current, foreground_thread, false);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn visibility_command(
+    hwnd: windows::Win32::Foundation::HWND,
+) -> windows::Win32::UI::WindowsAndMessaging::SHOW_WINDOW_CMD {
+    use windows::Win32::UI::WindowsAndMessaging::{IsIconic, SW_RESTORE, SW_SHOW};
+    if unsafe { IsIconic(hwnd).as_bool() } {
+        SW_RESTORE
+    } else {
+        SW_SHOW
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WINDOW_TITLE;
+
+    #[test]
+    fn window_title_is_the_single_instance_lookup_text() {
+        assert_eq!(WINDOW_TITLE, "Open Usage");
+        assert!(WINDOW_TITLE.is_ascii());
+    }
 }

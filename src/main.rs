@@ -6,8 +6,14 @@ use gpui::{
 gpui::actions!(open_usage, [Quit]);
 
 fn main() {
+    // A downloaded exe copies itself, starts the installed copy, and exits.
+    // The lock belongs to the process that continues on and opens the window.
     #[cfg(windows)]
     open_usage::install::install_and_handoff();
+    #[cfg(windows)]
+    if !ui::claim_single_instance() {
+        std::process::exit(0);
+    }
     Application::new()
         .with_assets(ui::assets())
         .run(move |cx: &mut App| {
@@ -25,7 +31,7 @@ fn main() {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     window_min_size: Some(size(px(420.), px(560.))),
                     titlebar: Some(TitlebarOptions {
-                        title: Some("Open Usage".into()),
+                        title: Some(ui::WINDOW_TITLE.into()),
                         ..Default::default()
                     }),
                     ..Default::default()
