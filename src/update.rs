@@ -45,9 +45,13 @@ pub fn current_version() -> &'static str {
 }
 
 pub fn platform_asset() -> Option<&'static str> {
-    if cfg!(windows) {
+    asset_for(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+fn asset_for(os: &str, arch: &str) -> Option<&'static str> {
+    if os == "windows" && arch == "x86_64" {
         Some(WINDOWS_ASSET)
-    } else if cfg!(target_os = "macos") {
+    } else if os == "macos" && arch == "aarch64" {
         Some(MAC_ASSET)
     } else {
         None
@@ -90,6 +94,9 @@ pub fn check() -> Result<Check, String> {
 }
 
 pub fn install(offer: &Offer) -> Result<Install, String> {
+    if platform_asset().is_none() {
+        return Err("Updates are available for Windows x64 and Apple Silicon Macs.".into());
+    }
     if !trusted_download(&offer.url) {
         return Err("The release download is not from this repository.".into());
     }
@@ -231,7 +238,7 @@ fn open_file(path: &Path) -> Result<(), String> {
                 "-WindowStyle",
                 "Hidden",
                 "-Command",
-                "Start-Process -LiteralPath $env:OPEN_USAGE_FILE",
+                "$ErrorActionPreference = 'Stop'; Start-Process -FilePath $env:OPEN_USAGE_FILE",
             ])
             .env("OPEN_USAGE_FILE", path);
         command
@@ -242,13 +249,17 @@ fn open_file(path: &Path) -> Result<(), String> {
     } else {
         return Err("The update was downloaded, but it could not be opened.".into());
     };
-    command
+    let status = command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
-        .map(|_| ())
-        .map_err(|_| "The update was downloaded, but it could not be opened.".to_string())
+        .status()
+        .map_err(|_| "The update was downloaded, but it could not be opened.".to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("The update was downloaded, but it could not be opened.".into())
+    }
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -400,22 +411,7 @@ Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction Silent
 "#;
 
 #[cfg(target_os = "macos")]
-const MAC_REPLACE: &str = r#"#!/bin/sh
-pid="$1"
-staged="$2"
-target="$3"
-while kill -0 "$pid" 2>/dev/null; do
-  sleep 1
-done
-sleep 1
-rm -rf "$target"
-if /usr/bin/ditto "$staged" "$target"; then
-  /usr/bin/open "$target"
-else
-  /usr/bin/open "$staged"
-fi
-rm -f "$0"
-"#;
+const MAC_REPLACE: &str = include_str!("update/macos-replace.sh");
 
 #[derive(Deserialize)]
 struct GithubRelease {
@@ -466,8 +462,10 @@ mod tests {
         assert!(!prompt_on_launch("0.3.0", "0.2.0", true));
         assert!(!prompt_on_launch("0.2.0", "0.2.0", false));
         assert!(!prompt_on_launch("0.1.9", "0.2.0", false));
-        let mut config = crate::config::Config::default();
-        config.update_delayed = Some("0.3.0".into());
+        let config = crate::config::Config {
+            update_delayed: Some("0.3.0".into()),
+            ..Default::default()
+        };
         let loaded: crate::config::Config =
             serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
         assert_eq!(loaded.update_delayed.as_deref(), Some("0.3.0"));
@@ -561,5 +559,21 @@ mod tests {
         .unwrap();
         assert_eq!(bundle, Path::new("/Applications/Open Usage.app"));
         assert!(app_bundle(Path::new("/tmp/open-usage")).is_none());
+    }
+
+    #[test]
+    fn updates_match_the_released_architectures() {
+        assert_eq!(asset_for("windows", "x86_64"), Some(WINDOWS_ASSET));
+        assert_eq!(asset_for("macos", "aarch64"), Some(MAC_ASSET));
+        assert_eq!(asset_for("macos", "x86_64"), None);
+        assert_eq!(asset_for("windows", "aarch64"), None);
+        assert_eq!(asset_for("linux", "x86_64"), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn opening_a_missing_download_reports_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(open_file(&dir.path().join("missing update.exe")).is_err());
     }
 }

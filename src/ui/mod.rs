@@ -500,7 +500,10 @@ impl Dashboard {
                         }
                         Ok(open_usage::update::Check::Unsupported) => {
                             if manual {
-                                self.message("Updates are available on Windows and macOS.", cx);
+                                self.message(
+                                    "Updates are available for Windows x64 and Apple Silicon Macs.",
+                                    cx,
+                                );
                             }
                         }
                         Err(error) => {
