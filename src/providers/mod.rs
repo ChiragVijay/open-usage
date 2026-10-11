@@ -12,22 +12,21 @@ mod local;
 pub mod opencode;
 mod process;
 mod proto;
+mod scan;
 
 use crate::{
     config::Config,
-    model::{Provider, Snapshot, UsageRecord},
+    model::{Provider, Snapshot},
     store::Store,
 };
 use anyhow::Result;
 use chrono::Utc;
+use scan::{LocalScan, scan_local};
 use std::{
-    collections::BTreeMap,
     path::PathBuf,
     sync::{Arc, Mutex, mpsc},
     thread,
-    time::UNIX_EPOCH,
 };
-use walkdir::WalkDir;
 
 pub fn homes(provider: Provider, config: &Config) -> Vec<PathBuf> {
     if let Some(root) = std::env::var_os(format!(
@@ -126,15 +125,6 @@ fn editor_home(name: &str, home: &std::path::Path) -> PathBuf {
             .unwrap_or_else(|| home.join(".config"))
             .join(name)
     }
-}
-
-struct LocalScan {
-    installations: Vec<String>,
-    detected: bool,
-    sources: usize,
-    records: BTreeMap<String, UsageRecord>,
-    notices: Vec<String>,
-    cached_limits: Option<kiro::CachedLimits>,
 }
 
 pub fn collect(config: &Config, previous: &Snapshot) -> Result<Snapshot> {
@@ -378,204 +368,4 @@ fn describe(
             status.provider.name()
         )
     };
-}
-
-fn scan_local(
-    provider: Provider,
-    config: &Config,
-    directories: &[PathBuf],
-    environment: &discovery::Environment,
-    store: &Mutex<Store>,
-    previous: &[UsageRecord],
-) -> LocalScan {
-    let mut scan = LocalScan {
-        installations: discovery::detect(provider, directories, environment),
-        detected: false,
-        sources: 0,
-        records: BTreeMap::new(),
-        notices: vec![],
-        cached_limits: None,
-    };
-    scan.detected = !scan.installations.is_empty();
-    let mut file_errors = 0;
-    if matches!(
-        provider,
-        Provider::Kiro | Provider::Antigravity | Provider::OpenCode
-    ) {
-        if provider == Provider::Kiro {
-            match kiro::cached_limits(directories) {
-                Ok(cached) => scan.cached_limits = cached,
-                Err(_) => file_errors += 1,
-            }
-        } else {
-            let paths = if provider == Provider::OpenCode {
-                opencode::databases(directories)
-            } else {
-                antigravity::databases(directories)
-            };
-            match paths {
-                Ok(paths) => {
-                    for path in paths {
-                        scan.sources += 1;
-                        let result = (|| -> Result<Vec<UsageRecord>> {
-                            let (size, modified) = local::fingerprint(&path)?;
-                            if let Some(records) = store
-                                .lock()
-                                .unwrap_or_else(|poison| poison.into_inner())
-                                .cached(&path, size, modified)?
-                            {
-                                return Ok(records);
-                            }
-                            let (records, skipped) = if provider == Provider::OpenCode {
-                                (opencode::history(&path)?, 0)
-                            } else {
-                                antigravity::history_with_warnings(&path)?
-                            };
-                            file_errors += skipped;
-                            if skipped == 0 && local::fingerprint(&path)? == (size, modified) {
-                                store
-                                    .lock()
-                                    .unwrap_or_else(|poison| poison.into_inner())
-                                    .cache(&path, size, modified, &records)?;
-                            }
-                            Ok(records)
-                        })();
-                        match result {
-                            Ok(records) => {
-                                for record in records {
-                                    scan.records.insert(record.id.clone(), record);
-                                }
-                            }
-                            Err(_) => file_errors += 1,
-                        }
-                    }
-                }
-                Err(_) => file_errors += 1,
-            }
-        }
-        if file_errors > 0 {
-            // Partial failures must not turn previously measured usage into zero.
-            for record in previous {
-                scan.records
-                    .entry(record.id.clone())
-                    .or_insert_with(|| record.clone());
-            }
-        }
-    } else if provider != Provider::Cursor {
-        if provider == Provider::Codex {
-            match opencode::databases(&homes(Provider::OpenCode, config)) {
-                Ok(paths) => {
-                    for path in paths {
-                        match opencode::codex_history(&path) {
-                            Ok(records) => {
-                                if !records.is_empty() {
-                                    scan.sources += 1;
-                                    scan.detected = true;
-                                }
-                                for record in records {
-                                    scan.records.insert(record.id.clone(), record);
-                                }
-                            }
-                            Err(_) => {
-                                file_errors += 1;
-                                for record in previous
-                                    .iter()
-                                    .filter(|record| record.source == path.to_string_lossy())
-                                {
-                                    scan.records.insert(record.id.clone(), record.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(_) => file_errors += 1,
-            }
-        }
-        let subdirs: &[&str] = if provider == Provider::Codex {
-            &["sessions", "archived_sessions"]
-        } else {
-            &["projects"]
-        };
-        for home in directories {
-            for subdir in subdirs {
-                let root = home.join(subdir);
-                if !root.exists() {
-                    continue;
-                }
-                for entry in WalkDir::new(root).follow_links(false).into_iter() {
-                    let entry = match entry {
-                        Ok(entry) => entry,
-                        Err(_) => {
-                            file_errors += 1;
-                            continue;
-                        }
-                    };
-                    if !entry.file_type().is_file()
-                        || entry.path().extension().is_none_or(|ext| ext != "jsonl")
-                    {
-                        continue;
-                    }
-                    scan.sources += 1;
-                    let parsed = (|| -> Result<Vec<UsageRecord>> {
-                        let metadata = entry.metadata()?;
-                        let modified = metadata
-                            .modified()?
-                            .duration_since(UNIX_EPOCH)?
-                            .as_nanos()
-                            .min(i64::MAX as u128) as u64;
-                        let cached = store
-                            .lock()
-                            .unwrap_or_else(|poison| poison.into_inner())
-                            .cached(entry.path(), metadata.len(), modified)?;
-                        if let Some(cached) = cached {
-                            return Ok(cached);
-                        }
-                        let parsed = history::read_jsonl(entry.path(), provider)?;
-                        if parsed.skipped == 0 {
-                            store
-                                .lock()
-                                .unwrap_or_else(|poison| poison.into_inner())
-                                .cache(entry.path(), metadata.len(), modified, &parsed.records)?;
-                        } else {
-                            file_errors += parsed.skipped;
-                        }
-                        Ok(parsed.records)
-                    })();
-                    match parsed {
-                        Ok(records) => {
-                            for record in records {
-                                scan.records.insert(record.id.clone(), record);
-                            }
-                        }
-                        Err(_) => file_errors += 1,
-                    }
-                }
-            }
-        }
-    } else {
-        for path in &config.cursor_imports {
-            match history::read_cursor_csv(path) {
-                Ok(records) => {
-                    scan.sources += 1;
-                    for record in records {
-                        scan.records.insert(record.id.clone(), record);
-                    }
-                }
-                Err(_) => file_errors += 1,
-            }
-        }
-        if config.cursor_imports.is_empty() && !config.online {
-            for record in previous {
-                scan.records.insert(record.id.clone(), record.clone());
-                scan.sources = scan.sources.max(1);
-            }
-        }
-    }
-    if file_errors > 0 {
-        scan.notices.push(format!(
-            "{}: {file_errors} unreadable files or incomplete rows. Refresh to retry.",
-            provider.name()
-        ));
-    }
-    scan
 }
