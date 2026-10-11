@@ -4,13 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: Version bump
+        description: Version bump, or finish to publish the current draft
         required: true
         type: choice
         options:
           - patch
           - minor
           - major
+          - finish
 
 permissions:
   contents: write
@@ -35,8 +36,19 @@ jobs:
         id: bump
         env:
           BUMP: ${{ inputs.bump }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          if [ "$BUMP" = "finish" ]; then
+            version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml)"
+            version="${version%%$'\n'*}"
+            test -n "$version"
+            draft="$(gh release view "v${version}" --json isDraft --jq .isDraft)"
+            test "$draft" = "true"
+            echo "version=${version}" >> "$GITHUB_OUTPUT"
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           new="$(python3 - <<'PY'
           import os
           import pathlib
@@ -94,8 +106,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.bump.outputs.version }}
           SHA: ${{ steps.bump.outputs.sha }}
+          BUMP: ${{ inputs.bump }}
         run: |
           set -euo pipefail
+          if [ "$BUMP" = "finish" ]; then
+            exit 0
+          fi
           gh release create "v${VERSION}" \
             --target "$SHA" \
             --title "v${VERSION}" \
@@ -150,11 +166,13 @@ jobs:
           test "$found" = "$VERSION"
       # Matches the Rust pin in mise.toml.
       - uses: dtolnay/rust-toolchain@1.97.1
+      # macOS grep -q exits at the first match. Under pipefail that SIGPIPE is exit 141.
       - name: Verify Apple Silicon toolchain
         run: |
           set -euo pipefail
           test "$(uname -m)" = "arm64"
-          rustc -vV | grep -qx 'host: aarch64-apple-darwin'
+          rustc -vV > rustc-version.txt
+          grep -qx 'host: aarch64-apple-darwin' rustc-version.txt
       - name: Verify update helper
         run: sh tests/macos-update.sh src/update/macos-replace.sh
       - name: Package
@@ -193,6 +211,7 @@ jobs:
           set -euo pipefail
           assets="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
           printf '%s\n' "$assets"
-          printf '%s\n' "$assets" | grep -qx "open-usage.exe"
-          printf '%s\n' "$assets" | grep -qx "open-usage.dmg"
+          printf '%s\n' "$assets" > release-assets.txt
+          grep -qx "open-usage.exe" release-assets.txt
+          grep -qx "open-usage.dmg" release-assets.txt
           gh release edit "$TAG" --draft=false

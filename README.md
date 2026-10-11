@@ -88,12 +88,12 @@ Packaging creates a release build in `dist/` for the current platform. macOS sig
 After the **Release** workflow is merged into the default branch:
 
 1. Open **Actions → Release → Run workflow** and select `main`.
-2. Choose a `patch`, `minor`, or `major` version bump.
-3. Run the workflow. It updates `Cargo.toml` and `Cargo.lock`, commits the version bump to the selected branch, and creates the `vX.Y.Z` tag with a draft GitHub release.
-4. Windows and Apple Silicon macOS jobs build that exact commit and upload `open-usage.exe` and `open-usage.dmg`. The Mac job verifies both the Rust host and packaged executable are ARM64 and runs the update-helper regression checks.
+2. Choose a `patch`, `minor`, or `major` version bump. Choose `finish` to build the current version and publish its existing draft without bumping again.
+3. Run the workflow. A bump updates `Cargo.toml` and `Cargo.lock`, commits that version to the selected branch, and creates the `vX.Y.Z` tag with a draft GitHub release. `finish` keeps the current version and the open draft.
+4. Windows and Apple Silicon macOS jobs build that commit and upload `open-usage.exe` and `open-usage.dmg`. The Mac job verifies both the Rust host and packaged executable are ARM64 and runs the update-helper regression checks.
 5. The publish job verifies both assets exist, then publishes the release so desktop update checks can discover it.
 
-The workflow needs permission to push the version commit and write releases; branch rules must allow that push. If packaging or publication fails, the release stays a draft. Re-run the failed jobs to retry that version rather than starting a new version bump.
+The workflow needs permission to push the version commit and write releases; branch rules must allow that push. If packaging or publication fails, the release stays a draft. Run the workflow again with `finish` so that version gets both assets and is published. Do not start another bump while the draft is still open.
 
 ## Credits
 
