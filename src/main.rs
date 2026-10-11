@@ -6,6 +6,8 @@ use gpui::{
 gpui::actions!(open_usage, [Quit]);
 
 fn main() {
+    #[cfg(windows)]
+    open_usage::install::install_and_handoff();
     Application::new()
         .with_assets(ui::assets())
         .run(move |cx: &mut App| {

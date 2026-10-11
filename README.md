@@ -12,7 +12,7 @@ Download the app from [GitHub Releases](https://github.com/ChiragVijay/open-usag
 
 | Platform | Download | Install |
 | --- | --- | --- |
-| Windows x64 | `open-usage.exe` | Save it in a writable folder and run it. |
+| Windows x64 | `open-usage.exe` | Run the download. It installs for the current user, with no admin prompt, to `%LOCALAPPDATA%\Open Usage\open-usage.exe` and adds an Open Usage shortcut at `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Open Usage.lnk`. |
 | macOS 13 or later, Apple Silicon | `open-usage.dmg` | Open the disk image and drag **Open Usage.app** into **Applications**. |
 
 The macOS release supports Apple Silicon only; there is no Intel or universal DMG. Signing and notarization are not configured, so macOS may block the downloaded app. These downloads do not require Rust or the development tools below.
@@ -25,7 +25,7 @@ Install Rust **1.97.1** (or run `mise install`), then launch an optimized build:
 cargo run --release --bin open-usage
 ```
 
-Windows requires Visual Studio Build Tools with Desktop development with C++ and a Windows SDK. macOS requires Xcode command-line tools.
+Windows requires Visual Studio Build Tools with Desktop development with C++ and a Windows SDK. macOS requires Xcode command-line tools. On Windows, launching the desktop program installs it for the current user and continues from `%LOCALAPPDATA%\Open Usage\open-usage.exe`.
 
 Sign in through your provider's app or CLI. Open Usage discovers existing logins and local history automatically. Use **Connections** to add a data folder or import a Cursor CSV.
 
@@ -52,7 +52,7 @@ Kiro credits and Antigravity quotas are verified with Windows CLI logins. OpenCo
 
 On Windows x64 and Apple Silicon Macs, the desktop app checks the latest stable GitHub release once per launch. A newer version offers **Update now** or **Delay**. Downloads and installation begin only when you choose **Update now**; the app then exits so a helper can replace it and relaunch it. **Delay** dismisses the offer for this launch, and the next launch checks again. You can also use **Settings → Updates → Check for updates**.
 
-Keep the Windows executable in a writable folder. On macOS, copy the app out of the DMG before updating. If the installed copy cannot be replaced, the downloaded EXE or DMG is opened for manual installation. Mac replacement prepares the new app on the installation volume and keeps the previous app until replacement succeeds. A failed replacement restores the previous app; if restoration also fails, its backup remains in a folder named `Open Usage.app.update-*` beside the installation.
+On Windows, **Update now** replaces the per-user install at `%LOCALAPPDATA%\Open Usage\open-usage.exe` and relaunches it. That folder is only the program. Settings stay in `%LOCALAPPDATA%\open-usage`. On macOS, copy the app out of the DMG before updating. If the installed copy cannot be replaced, the downloaded EXE or DMG is opened for manual installation. Mac replacement prepares the new app on the installation volume and keeps the previous app until replacement succeeds. A failed replacement restores the previous app; if restoration also fails, its backup remains in a folder named `Open Usage.app.update-*` beside the installation.
 
 Intel Mac builds and other architectures do not receive automatic updates. The CLI does not check for app updates.
 
