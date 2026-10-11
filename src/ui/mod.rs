@@ -100,6 +100,9 @@ enum UiAction {
     ActivityRows(Option<usize>),
     Detail(String),
     CloseDetail,
+    CheckUpdate,
+    UpdateNow,
+    UpdateDelay,
 }
 
 enum RefreshMsg {
@@ -108,6 +111,11 @@ enum RefreshMsg {
     Update(Arc<Snapshot>),
     Done(Result<Arc<Snapshot>, String>),
     Message(String),
+    UpdateChecked {
+        manual: bool,
+        result: Result<open_usage::update::Check, String>,
+    },
+    UpdateInstalled(Result<open_usage::update::Install, String>),
 }
 
 pub struct Dashboard {
@@ -155,6 +163,12 @@ pub struct Dashboard {
     /// `None` shows as many rows as fit in the window.
     activity_rows: Option<usize>,
     detail: Option<String>,
+    update_offer: Option<open_usage::update::Offer>,
+    /// The launch prompt is shown at most once. Delay does not clear this.
+    update_asked: bool,
+    update_auto: bool,
+    update_checking: bool,
+    update_busy: bool,
 }
 
 impl Dashboard {
@@ -269,6 +283,11 @@ impl Dashboard {
             _input_subscriptions: input_subscriptions,
             activity_rows: None,
             detail: None,
+            update_offer: None,
+            update_asked: false,
+            update_auto: false,
+            update_checking: false,
+            update_busy: false,
         };
         cx.spawn_in(window, async move |view, cx| {
             loop {
@@ -364,6 +383,39 @@ impl Dashboard {
         });
         cx.notify();
     }
+    fn check_update(&mut self, manual: bool, cx: &mut Context<Self>) {
+        if self.update_checking || self.update_busy {
+            if manual {
+                self.message("Checking for updates.", cx);
+            }
+            return;
+        }
+        self.update_checking = true;
+        if manual {
+            self.message("Checking for updates.", cx);
+        }
+        let sender = self.sender.clone();
+        std::thread::spawn(move || {
+            let result = open_usage::update::check();
+            let _ = sender.send(RefreshMsg::UpdateChecked { manual, result });
+        });
+        cx.notify();
+    }
+    fn install_update(&mut self, cx: &mut Context<Self>) {
+        let Some(offer) = self.update_offer.clone() else {
+            return;
+        };
+        if self.update_busy {
+            return;
+        }
+        self.update_busy = true;
+        let sender = self.sender.clone();
+        std::thread::spawn(move || {
+            let result = open_usage::update::install(&offer);
+            let _ = sender.send(RefreshMsg::UpdateInstalled(result));
+        });
+        cx.notify();
+    }
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(size) = self.pending_size.take() {
             window.resize(size);
@@ -388,8 +440,13 @@ impl Dashboard {
                 }
             }
         }
+        if !self.update_auto {
+            self.update_auto = true;
+            self.check_update(false, cx);
+        }
         // Apply only the newest history among this tick's messages.
         let mut latest = None;
+        let mut restart_for_update = false;
         while let Ok(message) = self.receiver.try_recv() {
             match message {
                 RefreshMsg::Loaded(snapshot) => {
@@ -411,8 +468,70 @@ impl Dashboard {
                     }
                 }
                 RefreshMsg::Message(text) => self.message(text, cx),
+                RefreshMsg::UpdateChecked { manual, result } => {
+                    self.update_checking = false;
+                    match result {
+                        Ok(open_usage::update::Check::Available(offer)) => {
+                            let show = manual
+                                || open_usage::update::prompt_on_launch(
+                                    &offer.version,
+                                    open_usage::update::current_version(),
+                                    self.update_asked,
+                                );
+                            if show {
+                                self.update_asked = true;
+                                self.update_offer = Some(offer);
+                            }
+                        }
+                        Ok(open_usage::update::Check::Current) => {
+                            self.update_asked = true;
+                            self.update_offer = None;
+                            if manual {
+                                self.message("Open Usage is up to date.", cx);
+                            }
+                        }
+                        Ok(open_usage::update::Check::MissingDownload { version }) => {
+                            if manual {
+                                self.message(
+                                    format!("Version {version} has no download for this system."),
+                                    cx,
+                                );
+                            }
+                        }
+                        Ok(open_usage::update::Check::Unsupported) => {
+                            if manual {
+                                self.message("Updates are available on Windows and macOS.", cx);
+                            }
+                        }
+                        Err(error) => {
+                            if manual {
+                                self.message(error, cx);
+                            } else {
+                                self.update_asked = true;
+                            }
+                        }
+                    }
+                }
+                RefreshMsg::UpdateInstalled(result) => {
+                    self.update_busy = false;
+                    match result {
+                        Ok(open_usage::update::Install::Restarting) => {
+                            self.message("Restarting to finish the update.", cx);
+                            restart_for_update = true;
+                        }
+                        Ok(open_usage::update::Install::Opened(text)) => {
+                            self.update_offer = None;
+                            self.message(text, cx);
+                        }
+                        Err(text) => self.message(text, cx),
+                    }
+                }
             }
             cx.notify();
+        }
+        if restart_for_update {
+            cx.quit();
+            return;
         }
         if let Some(snapshot) = latest {
             self.set_live(snapshot);
@@ -771,6 +890,15 @@ impl Dashboard {
                 window.focus(&self.focus);
             }
             UiAction::Quit => cx.quit(),
+            UiAction::CheckUpdate => self.check_update(true, cx),
+            UiAction::UpdateNow => self.install_update(cx),
+            UiAction::UpdateDelay => {
+                if let Some(offer) = self.update_offer.take() {
+                    self.config.update_delayed = Some(offer.version);
+                    self.save(cx);
+                    self.message("Update delayed. The next launch asks again.", cx);
+                }
+            }
             UiAction::Metric(tokens) => {
                 self.token_chart = tokens;
                 self.hovered = None;
@@ -989,6 +1117,9 @@ impl Render for Dashboard {
             )
             .on_key_down(cx.listener(Self::key))
             .child(content)
+            .when(self.update_offer.is_some(), |root| {
+                root.child(self.update_banner(cx))
+            })
             .when_some(self.toast.as_ref(), |root, (message, _)| {
                 root.child(
                     div()
