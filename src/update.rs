@@ -268,29 +268,60 @@ fn opened(path: &Path) -> Result<Install, String> {
     Ok(Install::Opened(OPENED.into()))
 }
 
+/// Where a Windows update is stored and which file it replaces.
+/// The destination is always the running executable. After the per-user
+/// install, that file is `%LOCALAPPDATA%\Open Usage\open-usage.exe`.
+#[cfg(any(test, windows))]
+pub(crate) fn windows_update_files(
+    running: &Path,
+    parent_writable: bool,
+    update_dir: &Path,
+) -> (PathBuf, PathBuf) {
+    let source = if parent_writable {
+        running
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("open-usage.update.exe")
+    } else {
+        update_dir.join(WINDOWS_ASSET)
+    };
+    (source, running.to_path_buf())
+}
+
 #[cfg(windows)]
 fn install_windows(offer: &Offer) -> Result<Install, String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
     let exe = std::env::current_exe().map_err(|_| "The running program could not be found.")?;
-    let parent = exe
-        .parent()
-        .filter(|path| directory_writable(path))
-        .map(Path::to_path_buf);
-    let source = if let Some(parent) = parent {
-        parent.join("open-usage.update.exe")
+    let parent_writable = exe.parent().is_some_and(directory_writable);
+    let updates = if parent_writable {
+        PathBuf::new()
     } else {
-        update_dir()?.join(WINDOWS_ASSET)
+        update_dir()?
     };
+    let (source, destination) = windows_update_files(&exe, parent_writable, &updates);
     download(&offer.url, &source)?;
     if !directory_writable(exe.parent().unwrap_or(Path::new("."))) {
         return opened(&source);
     }
-    let script_path = update_dir()?.join("replace.ps1");
-    if fs::write(&script_path, WINDOWS_REPLACE).is_err() {
+    if !replace_after_exit(std::process::id(), &source, &destination) {
         return opened(&source);
     }
-    let spawned = Command::new("powershell.exe")
+    Ok(Install::Restarting)
+}
+
+/// Wait until `process_id` exits, then move `source` onto `destination` and start it.
+/// This is the same helper the GitHub updater uses.
+#[cfg(windows)]
+pub(crate) fn replace_after_exit(process_id: u32, source: &Path, destination: &Path) -> bool {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let Ok(folder) = update_dir() else {
+        return false;
+    };
+    let script_path = folder.join("replace.ps1");
+    if fs::write(&script_path, WINDOWS_REPLACE).is_err() {
+        return false;
+    }
+    Command::new("powershell.exe")
         .args([
             "-NoProfile",
             "-WindowStyle",
@@ -300,18 +331,15 @@ fn install_windows(offer: &Offer) -> Result<Install, String> {
             "-File",
         ])
         .arg(&script_path)
-        .arg(std::process::id().to_string())
-        .arg(&source)
-        .arg(&exe)
+        .arg(process_id.to_string())
+        .arg(source)
+        .arg(destination)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .creation_flags(CREATE_NO_WINDOW)
-        .spawn();
-    if spawned.is_err() {
-        return opened(&source);
-    }
-    Ok(Install::Restarting)
+        .spawn()
+        .is_ok()
 }
 
 #[cfg(target_os = "macos")]
@@ -559,6 +587,27 @@ mod tests {
         .unwrap();
         assert_eq!(bundle, Path::new("/Applications/Open Usage.app"));
         assert!(app_bundle(Path::new("/tmp/open-usage")).is_none());
+    }
+
+    #[test]
+    fn windows_update_replaces_the_running_executable() {
+        let install = Path::new("Local").join("Open Usage").join("open-usage.exe");
+        let updates = Path::new("Local").join("open-usage").join("updates");
+        let (source, destination) = windows_update_files(&install, true, &updates);
+        assert_eq!(destination, install);
+        assert_eq!(
+            source,
+            Path::new("Local")
+                .join("Open Usage")
+                .join("open-usage.update.exe")
+        );
+        assert_ne!(destination, updates.join(WINDOWS_ASSET));
+        let (source, destination) = windows_update_files(&install, false, &updates);
+        assert_eq!(destination, install);
+        assert_eq!(source, updates.join(WINDOWS_ASSET));
+        let installed = Path::new(r"C:\Users\Ada\AppData\Local\Open Usage\open-usage.exe");
+        let (_, destination) = windows_update_files(installed, true, &updates);
+        assert_eq!(destination, installed);
     }
 
     #[test]
